@@ -43,5 +43,5 @@ export {
   createSecureGenerate,
   type TrustGuardAIConfig,
   type InputValidationResult,
-  type OutputFilterResult,
+  type AIOutputFilterResult,
 } from "./vercel-ai-sdk.js";

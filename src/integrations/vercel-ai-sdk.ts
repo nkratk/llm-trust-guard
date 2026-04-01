@@ -58,7 +58,7 @@ export interface InputValidationResult {
   sanitizedText?: string;
 }
 
-export interface OutputFilterResult {
+export interface AIOutputFilterResult {
   allowed: boolean;
   filteredText: string;
   piiDetected: number;
@@ -139,7 +139,7 @@ export class TrustGuardAI {
   /**
    * Filter LLM output. Always returns a (possibly masked) string.
    */
-  filterOutput(text: string, requestId?: string): OutputFilterResult {
+  filterOutput(text: string, requestId?: string): AIOutputFilterResult {
     if (!this.config.filterOutput) {
       return {
         allowed: true,

@@ -33,15 +33,3 @@ export {
   type ValidationResult,
   type SecureMessage,
 } from "./openai.js";
-
-// Vercel AI SDK integration
-export {
-  TrustGuardAI,
-  TrustGuardAIViolationError,
-  createTrustGuardMiddleware as createVercelTrustGuardMiddleware,
-  wrapWithTrustGuard,
-  createSecureGenerate,
-  type TrustGuardAIConfig,
-  type InputValidationResult,
-  type OutputFilterResult,
-} from "./vercel-ai-sdk.js";

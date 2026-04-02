@@ -66,6 +66,9 @@ export { CompressionDetector, CompressionDetectorConfig, CompressionDetectorResu
 export { ExternalDataGuard, ExternalDataGuardConfig, ExternalDataGuardResult, DataProvenance } from "./guards/external-data-guard";
 export { AgentSkillGuard, AgentSkillGuardConfig, AgentSkillGuardResult, SkillDefinition, SkillThreat } from "./guards/agent-skill-guard";
 export { SessionIntegrityGuard, SessionIntegrityGuardConfig, SessionIntegrityResult, SessionState } from "./guards/session-integrity-guard";
+export { SpawnPolicyGuard, SpawnPolicyGuardConfig, SpawnRequest, SpawnPolicyResult } from "./guards/spawn-policy-guard";
+export { DelegationScopeGuard, DelegationScopeGuardConfig, DelegationRequest, DelegationScopeResult } from "./guards/delegation-scope-guard";
+export { TrustTransitivityGuard, TrustTransitivityGuardConfig, TransitivityMode, AgentTrustEntry, TrustChainLink, TrustTransitivityResult } from "./guards/trust-transitivity-guard";
 
 // Export detection backend
 export { DetectionClassifier, DetectionResult, DetectionThreat, DetectionContext, createRegexClassifier, mergeDetectionResults } from "./detection-backend";

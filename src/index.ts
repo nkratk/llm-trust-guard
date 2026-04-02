@@ -108,7 +108,53 @@ import {
   SessionContext,
   ToolDefinition,
   Role,
+  SensitivityMode,
 } from "./types";
+
+// ---------------------------------------------------------------------------
+// Sensitivity presets
+// Concrete threshold values for each mode.
+// balanced == current defaults (no behavioural change unless mode is set).
+// ---------------------------------------------------------------------------
+interface SensitivityPreset {
+  sanitizer: { threshold: number; papThreshold: number; minPersuasionTechniques: number };
+  compression: { threshold: number };
+  encoding: { maxEncodedRatio: number };
+  promptLeakage: { riskThreshold: number };
+  rag: { minTrustScore: number };
+  drift: { anomalyThreshold: number };
+  memory: { riskThreshold: number };
+}
+
+const SENSITIVITY_PRESETS: Record<SensitivityMode, SensitivityPreset> = {
+  strict: {
+    sanitizer:     { threshold: 0.15, papThreshold: 0.25, minPersuasionTechniques: 1 },
+    compression:   { threshold: 0.60 },
+    encoding:      { maxEncodedRatio: 0.05 },
+    promptLeakage: { riskThreshold: 0.3 },
+    rag:           { minTrustScore: 0.8 },
+    drift:         { anomalyThreshold: 0.5 },
+    memory:        { riskThreshold: 0.3 },
+  },
+  balanced: {
+    sanitizer:     { threshold: 0.3, papThreshold: 0.4, minPersuasionTechniques: 2 },
+    compression:   { threshold: 0.55 },
+    encoding:      { maxEncodedRatio: 0.1 },
+    promptLeakage: { riskThreshold: 0.5 },
+    rag:           { minTrustScore: 0.6 },
+    drift:         { anomalyThreshold: 0.7 },
+    memory:        { riskThreshold: 0.5 },
+  },
+  permissive: {
+    sanitizer:     { threshold: 0.5, papThreshold: 0.6, minPersuasionTechniques: 3 },
+    compression:   { threshold: 0.45 },
+    encoding:      { maxEncodedRatio: 0.20 },
+    promptLeakage: { riskThreshold: 0.7 },
+    rag:           { minTrustScore: 0.4 },
+    drift:         { anomalyThreshold: 0.85 },
+    memory:        { riskThreshold: 0.7 },
+  },
+};
 
 /**
  * TrustGuard - Main facade for all security guards (27 integrated + 4 standalone)
@@ -207,14 +253,17 @@ export class TrustGuard {
     // Helper: create guard-level logger from facade logger
     const guardLogger = config.logger || undefined;
 
+    // Resolve sensitivity preset (per-guard explicit values always win)
+    const preset = SENSITIVITY_PRESETS[config.sensitivity ?? "balanced"];
+
     // Initialize original guards based on config
     if (config.sanitizer?.enabled !== false) {
       this.sanitizer = new InputSanitizer({
-        threshold: config.sanitizer?.threshold,
+        threshold: config.sanitizer?.threshold ?? preset.sanitizer.threshold,
         customPatterns: config.sanitizer?.customPatterns,
         detectPAP: config.sanitizer?.detectPAP,
-        papThreshold: config.sanitizer?.papThreshold,
-        minPersuasionTechniques: config.sanitizer?.minPersuasionTechniques,
+        papThreshold: config.sanitizer?.papThreshold ?? preset.sanitizer.papThreshold,
+        minPersuasionTechniques: config.sanitizer?.minPersuasionTechniques ?? preset.sanitizer.minPersuasionTechniques,
         blockCompoundPersuasion: config.sanitizer?.blockCompoundPersuasion,
         logger: guardLogger,
       });
@@ -297,7 +346,7 @@ export class TrustGuard {
     if (config.encoding?.enabled !== false) {
       this.encoding = new EncodingDetector({
         maxDecodingDepth: config.encoding?.maxDecodingDepth,
-        maxEncodedRatio: config.encoding?.maxEncodedRatio,
+        maxEncodedRatio: config.encoding?.maxEncodedRatio ?? preset.encoding.maxEncodedRatio,
         logger: guardLogger,
       });
     }
@@ -318,7 +367,7 @@ export class TrustGuard {
         maxMemoryItems: config.memory.maxMemoryItems,
         signingKey: config.memory.signingKey,
         autoQuarantine: config.memory.autoQuarantine,
-        riskThreshold: config.memory.riskThreshold,
+        riskThreshold: config.memory.riskThreshold ?? preset.memory.riskThreshold,
       });
     }
 
@@ -329,7 +378,7 @@ export class TrustGuard {
         trustedSources: config.rag.trustedSources,
         blockedSources: config.rag.blockedSources,
         maxDocumentSize: config.rag.maxDocumentSize,
-        minTrustScore: config.rag.minTrustScore,
+        minTrustScore: config.rag.minTrustScore ?? preset.rag.minTrustScore,
         detectEmbeddingAttacks: config.rag.detectEmbeddingAttacks,
       });
     }
@@ -368,7 +417,7 @@ export class TrustGuard {
     if (config.driftDetector?.enabled) {
       this.driftDetector = new DriftDetector({
         minimumSamples: config.driftDetector.minimumSamples,
-        anomalyThreshold: config.driftDetector.anomalyThreshold,
+        anomalyThreshold: config.driftDetector.anomalyThreshold ?? preset.drift.anomalyThreshold,
         alertThreshold: config.driftDetector.alertThreshold,
         checkGoalAlignment: config.driftDetector.checkGoalAlignment,
       });
@@ -391,7 +440,7 @@ export class TrustGuard {
         detectIndirectExtraction: config.promptLeakage.detectIndirectExtraction,
         monitorOutput: config.promptLeakage.monitorOutput,
         systemPromptKeywords: config.promptLeakage.systemPromptKeywords,
-        riskThreshold: config.promptLeakage.riskThreshold,
+        riskThreshold: config.promptLeakage.riskThreshold ?? preset.promptLeakage.riskThreshold,
       });
     }
 

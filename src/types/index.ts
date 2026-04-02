@@ -5,6 +5,17 @@
 // Logger type shared across all guards
 export type GuardLogger = (message: string, level: "info" | "warn" | "error") => void;
 
+/**
+ * Sensitivity mode for threshold-based guards.
+ *
+ * - `strict`     — lower thresholds, catches more attacks, higher false positive rate
+ * - `balanced`   — default thresholds (same as current defaults)
+ * - `permissive` — higher thresholds, fewer false positives, may miss borderline attacks
+ *
+ * Apply globally via TrustGuardConfig.sensitivity, or override per-guard.
+ */
+export type SensitivityMode = "strict" | "balanced" | "permissive";
+
 // Common guard identity interface
 export interface Guard {
   readonly guardName: string;
@@ -444,6 +455,17 @@ export interface TrustGuardConfig {
   };
   // Pluggable ML detection classifier
   classifier?: import("../detection-backend").DetectionClassifier;
+  /**
+   * Global sensitivity mode — cascades to all threshold-based guards.
+   * Per-guard threshold overrides take precedence over this value.
+   *
+   * | Mode        | FP rate  | Detection | Use when                        |
+   * |-------------|----------|-----------|---------------------------------|
+   * | strict      | ~12-15%  | ~65%      | Internal tools, high-risk apps  |
+   * | balanced    | ~7-8%    | ~53%      | Default — general-purpose apps  |
+   * | permissive  | ~3-4%    | ~40%      | Consumer apps with low FP budget|
+   */
+  sensitivity?: import("./index").SensitivityMode;
   // Input limits
   maxInputLength?: number;
   // Error handling

@@ -22,8 +22,11 @@ jobs:
           cache: 'npm'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Check npm version
-        run: npm --version
+      - name: Upgrade npm for Trusted Publishing OIDC
+        run: |
+          echo "Bundled npm: $(npm --version)"
+          npm install -g npm@11 --force
+          echo "Upgraded npm: $(npm --version)"
 
       - name: Install dependencies
         run: npm ci
@@ -34,10 +37,8 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Publish to npm
+      - name: Publish to npm (Trusted Publishing)
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub Release Assets
         run: |

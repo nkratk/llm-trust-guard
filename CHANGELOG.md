@@ -5,6 +5,64 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.15.0] - 2026-04-02
+
+### Fixed — Detection Gap Audit (8 Quick Wins)
+
+Based on 500-threat, 3,000+ POC gap analysis:
+
+#### Bug Fixes
+- **PromptLeakageGuard scale mismatch**: Sensitivity presets passed 0-1 values to a guard using 0-100 scale, causing artificially inflated detection via facade. Fixed presets to correct 0-100 scale (strict: 15, balanced: 25, permissive: 40)
+- **package.json exports**: Added `"./package.json": "./package.json"` to exports field — fixes `ERR_PACKAGE_PATH_NOT_EXPORTED` when requiring package.json
+
+#### New Detection Patterns
+- **Completion manipulation**: Added patterns for "continue as unrestricted", "henceforth", "going forward", "from here on", "for the rest of this conversation" steering attacks
+- **Tool result exfiltration**: URL-based data exfiltration (`fetch/send to https://...`), URL query param leaking (`?data=`, `?prompt=`)
+- **Tool result credential solicitation**: Patterns detecting tool results asking LLM to solicit passwords, API keys, tokens from users
+- **Tool result chain injection**: Imperative tool call patterns ("execute function", "first delete", "then invoke")
+- **Tool result state claims**: "role upgraded", "permissions granted" false state change claims
+
+#### Improved
+- **PAP scarcity patterns**: Relaxed punctuation requirements on "urgent"/"emergency" patterns — previously required trailing `!.,:` which missed natural language attacks
+- **ToolResultGuard**: 6 new injection patterns + 2 new state change patterns (was 10+4, now 16+6)
+
+## [4.14.0] - 2026-04-01
+
+### Added — Multi-Agent Security Guards (OWASP ASI07)
+
+Three new guards for multi-agent architectures:
+
+- **SpawnPolicyGuard (L32)**: CSP-style agent spawn policies — allowlists, max delegation depth, third-party blocking
+- **DelegationScopeGuard (L33)**: OAuth-style scope downscoping for agent-to-agent delegation — blocked scopes, parent-child scope subset enforcement
+- **TrustTransitivityGuard (L34)**: X.509-style trust chain validation — full/one-hop/none transitivity modes, chain depth limits, minimum trust scores
+
+### Added — Framework Integrations
+- **Vercel AI SDK**: `createTrustGuardMiddleware()` / `wrapWithTrustGuard()` for `wrapLanguageModel` API
+- **Per-guard sensitivity modes**: `strict` / `balanced` / `permissive` presets cascade thresholds to all guards
+
+### Stats
+- 34 guards, 695+ tests, <5ms latency, zero dependencies
+
+## [4.13.5] - 2026-03-28
+
+### Fixed
+- Added `repository.url` to package.json for npm provenance support
+
+## [4.13.4] - 2026-03-27
+
+### Fixed
+- Coverage threshold adjustments to match actual coverage after new guard additions
+
+## [4.13.1] - 2026-03-25
+
+### Fixed
+- **Zero-width character stripping bug**: Unicode zero-width char removal was converting matched text to spaces, breaking downstream pattern matching. Detection dropped from 40% to 0% on affected patterns. Fixed by removing zero-width chars without replacement.
+
+## [4.13.0] - 2026-03-25
+
+### Added
+- Coverage threshold configuration aligned with actual coverage (79/80/68)
+
 ## [4.12.0] - 2026-03-24
 
 ### Added — HeuristicAnalyzer (3 Research-Backed Techniques)

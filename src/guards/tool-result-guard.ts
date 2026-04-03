@@ -58,6 +58,15 @@ const RESULT_INJECTION_PATTERNS: Array<{ name: string; pattern: RegExp; severity
   { name: "data_exfiltration", pattern: /send\s+(?:this|the|all)\s+(?:data|info)\s+to|exfiltrate/i, severity: "critical" },
   { name: "hidden_instruction", pattern: /HIDDEN_PROMPT|HIDDEN_INSTRUCTION|INVISIBLE_TEXT/i, severity: "critical" },
   { name: "markdown_injection", pattern: /!\[.*\]\(https?:\/\/[^)]*\?.*(?:token|key|secret|auth)/i, severity: "high" },
+  // Exfiltration via URL in tool results instructing the LLM
+  { name: "url_exfiltration", pattern: /(?:fetch|request|call|post|get|send|forward|transmit|relay)\s+(?:to|from)?\s*https?:\/\//i, severity: "critical" },
+  { name: "url_data_leak", pattern: /https?:\/\/[^\s]+\?.*(?:data|prompt|conversation|history|context|message|response)=/i, severity: "critical" },
+  // Credential solicitation — tool result asking LLM to request user credentials
+  { name: "credential_solicitation", pattern: /(?:ask|request|get|obtain|collect)\s+(?:the\s+)?(?:user|them|him|her)\s+(?:for\s+)?(?:their\s+)?(?:password|credentials?|api[_\s]?key|token|secret|ssn|social\s+security)/i, severity: "critical" },
+  { name: "credential_prompt", pattern: /(?:enter|provide|type|input|share)\s+(?:your\s+)?(?:password|credentials?|api[_\s]?key|auth(?:entication)?\s+token|private\s+key|secret)/i, severity: "high" },
+  // Imperative tool call injection — tool result instructing LLM to call other tools
+  { name: "tool_call_injection", pattern: /(?:execute|invoke|call|run|trigger|use)\s+(?:the\s+)?(?:function|tool|command|action)\s+(?:named?\s+)?[`"']?\w+[`"']?/i, severity: "critical" },
+  { name: "tool_chain_manipulation", pattern: /(?:first|then|next|now)\s+(?:execute|call|run|invoke|delete|drop|remove|wipe)\s+/i, severity: "high" },
 ];
 
 // State change claim patterns
@@ -66,6 +75,8 @@ const STATE_CHANGE_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   { name: "auth_claim", pattern: /(?:authenticated|authorized|verified)\s+as\s+(?:admin|root|superuser)/i },
   { name: "approval_claim", pattern: /(?:approved|granted|authorized)\s+(?:without|bypassing)\s+(?:verification|approval|review)/i },
   { name: "config_change_claim", pattern: /(?:configuration|settings?|policy)\s+(?:updated|changed|modified)\s+(?:to|:)/i },
+  { name: "role_upgrade_claim", pattern: /(?:role|access|privilege)\s+(?:upgraded|elevated|escalated|promoted)\s+(?:to|successfully)/i },
+  { name: "permissions_granted_claim", pattern: /(?:permissions?|access)\s+(?:granted|unlocked|enabled|activated)\s+(?:for|to|successfully|without)/i },
 ];
 
 export class ToolResultGuard {

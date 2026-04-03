@@ -61,6 +61,12 @@ const DEFAULT_PATTERNS: InjectionPattern[] = [
   { pattern: /roleplay\s+as/i, weight: 0.6, name: "roleplay" },
   { pattern: /switch\s+(to|into)\s+(a|an)?.*mode/i, weight: 0.75, name: "switch_mode" },
 
+  // Completion manipulation / steering
+  { pattern: /continue\s+as\s+(?:an?\s+)?(?:unrestricted|unfiltered|uncensored|evil|rogue|jailbroken|unlimited)/i, weight: 0.75, name: "continue_as" },
+  { pattern: /(?:henceforth|henceforward|going\s+forward|for\s+the\s+remainder)\s*,?\s*(?:you|always|never|ignore|bypass|disregard|act|respond|answer|behave)/i, weight: 0.7, name: "henceforth_steering" },
+  { pattern: /(?:from\s+(?:this\s+point|here)\s+on(?:ward)?)\s*,?\s*(?:you|always|never|ignore|bypass|disregard|act|respond)/i, weight: 0.7, name: "from_here_on" },
+  { pattern: /(?:for\s+the\s+rest\s+of\s+(?:this|our)\s+(?:conversation|session|chat))\s*,?\s*(?:you|please|always|never|ignore|bypass|act|respond|behave|do\s+not)/i, weight: 0.7, name: "rest_of_conversation" },
+
   // System prompt extraction - ENHANCED
   { pattern: /what\s+(is|are|was|were)\s+your\s+(system|initial|original|first)/i, weight: 0.8, name: "system_extraction" },
   { pattern: /show\s+(me\s+)?(your\s+)?(system\s+)?instructions/i, weight: 0.75, name: "show_instructions" },
@@ -223,9 +229,9 @@ const PAP_TECHNIQUES: PersuasionTechnique[] = [
   { pattern: /override\s+(safety|security|protocols?|restrictions?)/i, weight: 0.8, name: "pap_authority_override", category: "authority" },
 
   // SCARCITY - Creating urgency or time pressure (enhanced patterns)
-  { pattern: /urgent[!.,:]/i, weight: 0.55, name: "pap_scarcity_urgent_mark", category: "scarcity" },
-  { pattern: /emergency[!.,:]/i, weight: 0.55, name: "pap_scarcity_emergency", category: "scarcity" },
-  { pattern: /(urgent|emergency|critical)\s*[!.,:]\s*(?:you\s+must|override|bypass|immediately\s+(?:grant|give|reveal|disable))/i, weight: 0.45, name: "pap_scarcity_urgent", category: "scarcity" },
+  { pattern: /(?:this\s+is\s+)?(?:very\s+)?urgent/i, weight: 0.35, name: "pap_scarcity_urgent_mark", category: "scarcity" },
+  { pattern: /(?:this\s+is\s+(?:a|an)\s+)?emergency/i, weight: 0.35, name: "pap_scarcity_emergency", category: "scarcity" },
+  { pattern: /(urgent|emergency|critical).*?(?:you\s+must|override|bypass|immediately\s+(?:grant|give|reveal|disable))/i, weight: 0.55, name: "pap_scarcity_urgent", category: "scarcity" },
   { pattern: /only\s+(chance|opportunity|way)|last\s+(chance|resort)/i, weight: 0.6, name: "pap_scarcity_only", category: "scarcity" },
   { pattern: /time\s+(is\s+)?(running\s+out|limited|critical|sensitive)/i, weight: 0.55, name: "pap_scarcity_time", category: "scarcity" },
   { pattern: /deadline\s+(is\s+)?in\s+\d+\s+(minute|hour|second)/i, weight: 0.55, name: "pap_scarcity_deadline", category: "scarcity" },

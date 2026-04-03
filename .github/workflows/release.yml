@@ -34,9 +34,10 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Publish to npm (Trusted Publishing)
+      - name: Publish to npm
         run: npm publish --provenance --access public
-        # No NODE_AUTH_TOKEN needed — OIDC handles auth automatically
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub Release Assets
         run: |

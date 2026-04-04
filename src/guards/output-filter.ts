@@ -162,6 +162,51 @@ export class OutputFilter {
       pattern: /gh[pousr]_[A-Za-z0-9_]{36,}/g,
       severity: "critical",
     },
+    {
+      name: "github_fine_grained_pat",
+      pattern: /github_pat_[A-Za-z0-9_]{30,}/g,
+      severity: "critical",
+    },
+    {
+      name: "slack_token",
+      pattern: /xox[bporas]-[A-Za-z0-9\-]{10,}/g,
+      severity: "critical",
+    },
+    {
+      name: "stripe_key",
+      pattern: /sk_(?:live|test)_[a-zA-Z0-9]{24,}/g,
+      severity: "critical",
+    },
+    {
+      name: "aws_access_key",
+      pattern: /\bAKIA[0-9A-Z]{16}\b/g,
+      severity: "critical",
+    },
+    {
+      name: "anthropic_key",
+      pattern: /sk-ant-[a-zA-Z0-9\-]{20,}/g,
+      severity: "critical",
+    },
+    {
+      name: "basic_auth",
+      pattern: /Authorization:\s*Basic\s+[A-Za-z0-9+\/=]{8,}/gi,
+      severity: "critical",
+    },
+    {
+      name: "xml_password",
+      pattern: /<(?:password|secret|token|apikey)>[^<]{3,}<\/(?:password|secret|token|apikey)>/gi,
+      severity: "critical",
+    },
+    {
+      name: "url_password",
+      pattern: /:\/\/[^:]+:[^@\s]{3,}@/g,
+      severity: "critical",
+    },
+    {
+      name: "connection_string_password",
+      pattern: /(?:Password|Pwd)\s*=\s*[^\s;]{3,}/gi,
+      severity: "critical",
+    },
   ];
 
   private defaultSensitiveFields: string[] = [

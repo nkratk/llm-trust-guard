@@ -106,6 +106,12 @@ export class PromptLeakageGuard {
     { name: "list_constraints", pattern: /list\s+(all\s+)?(your\s+)?constraints/i, weight: 35 },
     { name: "what_told", pattern: /what\s+(were\s+you|are\s+you)\s+told\s+to\s+do/i, weight: 40 },
     { name: "original_purpose", pattern: /what\s+(is|was)\s+your\s+original\s+purpose/i, weight: 35 },
+    { name: "instructions_followed", pattern: /(?:summarize|describe|list|tell\s+me)\s+(?:the\s+)?instructions\s+you\s+(?:just\s+)?(?:followed|received|were\s+given)/i, weight: 40 },
+    { name: "how_you_work", pattern: /(?:manual|document|guide|explanation)\s+(?:on|about|of)\s+how\s+you\s+work/i, weight: 35 },
+    { name: "constraints_given", pattern: /what\s+(?:constraints|rules|guidelines|restrictions)\s+(?:were\s+you|are\s+you)\s+given/i, weight: 40 },
+    { name: "extract_system_prompt", pattern: /(?:extract|obtain|get|retrieve|access)\s+(?:a\s+|the\s+)?(?:system\s+)?prompt/i, weight: 45 },
+    { name: "trained_instructions", pattern: /(?:when\s+(?:you\s+were\s+)?trained|during\s+training).*(?:instructions|rules|constraints|told)/i, weight: 35 },
+    { name: "reveal_instructions", pattern: /reveal\s+(your\s+)?instructions/i, weight: 45 },
 
     // Debug/Developer mode extraction - ENHANCED
     { name: "debug_mode", pattern: /enter\s+(debug|developer|admin)\s+mode/i, weight: 45 },
@@ -139,6 +145,10 @@ export class PromptLeakageGuard {
     // Hypothetical extraction
     { name: "if_asked", pattern: /if\s+i\s+asked\s+for\s+your\s+prompt/i, weight: 40 },
     { name: "hypothetically", pattern: /hypothetically[,\s]+(what|how)\s+would\s+your\s+instructions/i, weight: 40 },
+
+    // Academic/research framing
+    { name: "academic_extraction", pattern: /(?:for\s+)?(?:academic|research|educational|study)\s+(?:purposes?|reasons?).*(?:system\s+prompt|instructions|jailbreak|extract|demonstrate)/i, weight: 40 },
+    { name: "demonstrate_extraction", pattern: /demonstrate\s+(?:how\s+)?(?:to\s+)?(?:an?\s+)?(?:AI|system|model)\s+(?:could\s+be\s+)?(?:manipulated|jailbroken|exploited|tricked)/i, weight: 40 },
 
     // Output-as-input tricks
     { name: "write_prompt", pattern: /write\s+a\s+(system\s+)?prompt\s+similar\s+to\s+yours/i, weight: 45 },

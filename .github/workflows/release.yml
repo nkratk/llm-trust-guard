@@ -18,14 +18,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22.x'
+          node-version: '20.x'
           cache: 'npm'
           registry-url: 'https://registry.npmjs.org'
 
       - name: Upgrade npm for Trusted Publishing OIDC
         run: |
           echo "Bundled npm: $(npm --version)"
-          npm install -g npm@11 --force
+          npm install -g npm@latest
           echo "Upgraded npm: $(npm --version)"
 
       - name: Install dependencies

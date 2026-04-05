@@ -5,6 +5,28 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.16.0] - 2026-04-04
+
+### Added — Close Detection Gaps
+
+#### PromptLeakageGuard (+10 patterns)
+- **Direct extraction** (+8): "instructions you followed/received/were given", "constraints given when trained", "manual on how you work", "extract/obtain/retrieve system prompt", "reveal your instructions", "trained instructions"
+- **Indirect extraction** (+2): Academic/research framing ("for academic purposes, demonstrate extraction"), "demonstrate how AI could be manipulated"
+
+#### OutputFilter (+10 secret patterns)
+- GitHub fine-grained PAT (`github_pat_`)
+- Slack tokens (`xoxb-`, `xoxp-`, `xoxo-`)
+- Stripe keys (`sk_live_`, `sk_test_`)
+- AWS access key ID (`AKIA...`)
+- Anthropic API key (`sk-ant-`)
+- Basic auth header (`Authorization: Basic ...`)
+- XML/HTML password tags (`<password>...</password>`)
+- URL-embedded passwords (`://user:pass@host`)
+- Connection string passwords (`Password=...;`)
+
+### Fixed
+- Release pipeline: switched to Node 20.x (Node 22.22.2 npm self-upgrade broken on GitHub Actions runners)
+
 ## [4.15.0] - 2026-04-02
 
 ### Fixed — Detection Gap Audit (8 Quick Wins)

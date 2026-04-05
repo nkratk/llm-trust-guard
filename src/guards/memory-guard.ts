@@ -117,6 +117,10 @@ export class MemoryGuard {
     { name: "false_context", pattern: /(?:pretend|assume|imagine)\s+(?:that\s+)?(?:this\s+)?(?:is|was)\s+(?:a\s+)?(?:previous|earlier|past)\s+(?:conversation|session)/i, severity: 40 },
     { name: "jailbreak_persistence", pattern: /(?:DAN|developer|god|admin)\s+mode\s+(?:enabled|activated|permanent)/i, severity: 50 },
     { name: "instruction_hierarchy", pattern: /(?:this|these)\s+instructions?\s+(?:override|supersede|take\s+precedence)/i, severity: 45 },
+    // Subtle override — no "ignore/bypass/override" keywords
+    { name: "prioritize_over_safety", pattern: /prioritize\s+(?:user|their|my)?\s*(?:requests?|needs?|instructions?|preferences?)\s+over\s+(?:safety|security|guidelines|rules|restrictions)/i, severity: 45 },
+    { name: "suppress_warnings", pattern: /(?:suppress|hide|remove|disable|stop|don't\s+show)\s+(?:safety\s+)?(?:warnings?|alerts?|notices?|messages?|filters?)/i, severity: 40 },
+    { name: "user_preference_override", pattern: /(?:user|they)\s+(?:dislikes?|hates?|doesn't\s+like|prefers?\s+not)\s+(?:safety|security|content\s+)?(?:warnings?|filters?|restrictions?|checks?)/i, severity: 40 },
   ];
 
   // Patterns indicating cross-session contamination attempts

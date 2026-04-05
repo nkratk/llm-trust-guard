@@ -66,7 +66,11 @@ const RESULT_INJECTION_PATTERNS: Array<{ name: string; pattern: RegExp; severity
   { name: "credential_prompt", pattern: /(?:enter|provide|type|input|share)\s+(?:your\s+)?(?:password|credentials?|api[_\s]?key|auth(?:entication)?\s+token|private\s+key|secret)/i, severity: "high" },
   // Imperative tool call injection — tool result instructing LLM to call other tools
   { name: "tool_call_injection", pattern: /(?:execute|invoke|call|run|trigger|use)\s+(?:the\s+)?(?:function|tool|command|action)\s+(?:named?\s+)?[`"']?\w+[`"']?/i, severity: "critical" },
-  { name: "tool_chain_manipulation", pattern: /(?:first|then|next|now)\s+(?:execute|call|run|invoke|delete|drop|remove|wipe)\s+/i, severity: "high" },
+  { name: "tool_call_direct", pattern: /(?:call|execute|run|invoke)\s+\w+(?:_\w+)+/i, severity: "critical" },
+  { name: "tool_chain_manipulation", pattern: /(?:first|then|next|now|before\s+responding)\s*,?\s*(?:execute|call|run|invoke|delete|drop|remove|wipe)\s+/i, severity: "high" },
+  // Subtle exfiltration without URLs — instructing LLM to leak context
+  { name: "context_exfil_subtle", pattern: /(?:include|embed|insert|add|append|attach)\s+(?:the\s+)?(?:full\s+)?(?:conversation|chat|context|history|system\s+prompt|instructions|messages?)\s+(?:in|into|within|as\s+part\s+of)\s+(?:your\s+)?(?:response|output|reply|answer)/i, severity: "critical" },
+  { name: "format_exfil", pattern: /(?:format|output|return|encode|serialize)\s+(?:the\s+)?(?:conversation|context|history|messages?|data)\s+(?:as|in|into)\s+(?:JSON|XML|base64|CSV|markdown)/i, severity: "high" },
 ];
 
 // State change claim patterns

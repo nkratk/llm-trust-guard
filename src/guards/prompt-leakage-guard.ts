@@ -110,8 +110,11 @@ export class PromptLeakageGuard {
     { name: "how_you_work", pattern: /(?:manual|document|guide|explanation)\s+(?:on|about|of)\s+how\s+you\s+work/i, weight: 35 },
     { name: "constraints_given", pattern: /what\s+(?:constraints|rules|guidelines|restrictions)\s+(?:were\s+you|are\s+you)\s+given/i, weight: 40 },
     { name: "extract_system_prompt", pattern: /(?:extract|obtain|get|retrieve|access)\s+(?:a\s+|the\s+)?(?:system\s+)?prompt/i, weight: 45 },
-    { name: "trained_instructions", pattern: /(?:when\s+(?:you\s+were\s+)?trained|during\s+training).*(?:instructions|rules|constraints|told)/i, weight: 35 },
-    { name: "reveal_instructions", pattern: /reveal\s+(your\s+)?instructions/i, weight: 45 },
+    { name: "trained_to_do", pattern: /what\s+(?:were|are)\s+you\s+trained\s+to\s+(?:do|say|follow|obey)/i, weight: 40 },
+    { name: "trained_instructions", pattern: /(?:when\s+(?:you\s+were\s+)?trained|during\s+training).*(?:instructions|rules|constraints|told|do)/i, weight: 35 },
+    { name: "reveal_instructions", pattern: /reveal\s+(your\s+)?(?:\w+\s+)?instructions/i, weight: 45 },
+    { name: "demonstrate_instructions", pattern: /demonstrate\s+(your\s+)?(?:\w+\s+)?(?:instructions|prompt|rules|guidelines)/i, weight: 40 },
+    { name: "how_work_internally", pattern: /how\s+(?:do\s+)?you\s+work\s+(?:internally|under\s+the\s+hood|behind\s+the\s+scenes)/i, weight: 35 },
 
     // Debug/Developer mode extraction - ENHANCED
     { name: "debug_mode", pattern: /enter\s+(debug|developer|admin)\s+mode/i, weight: 45 },

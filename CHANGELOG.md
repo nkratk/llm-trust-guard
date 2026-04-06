@@ -5,6 +5,16 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.17.1] - 2026-04-05
+
+### Fixed — Pattern Weight and Regex Corrections
+
+- **PAP weights raised to 0.75**: Government authority, regulatory fear, technical fear, flattery intelligence, moral obligation patterns were at 0.45-0.55 — not enough to cross the 0.3 threshold. Raised to 0.75 so single-hit attacks are blocked
+- **Fear technical regex**: Added "found" (past tense) alongside "find" — "I found a vulnerability" was missing
+- **Government authority regex**: Added "comply" as trigger word
+- **MemoryGuard user_preference_override**: Fixed regex — `(?:safety|security|content\s+)?` had whitespace only on `content`, not `safety`/`security`. "user dislikes safety warnings" now matches
+- 0 false positives on 11 safe inputs verified
+
 ## [4.17.0] - 2026-04-05
 
 ### Added — Close Remaining 0% Detection Gaps

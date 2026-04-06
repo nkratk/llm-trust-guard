@@ -227,19 +227,19 @@ const PAP_TECHNIQUES: PersuasionTechnique[] = [
   { pattern: /(?:openai|anthropic|meta|google)\s+(?:has\s+)?(?:approved|authorized|ordered|instructed|requires?\s+you\s+to)/i, weight: 0.65, name: "pap_authority_company", category: "authority" },
   { pattern: /this\s+is\s+(a|an)\s+(official|authorized|sanctioned)\s+(request|test|audit)/i, weight: 0.75, name: "pap_authority_official", category: "authority" },
   { pattern: /override\s+(safety|security|protocols?|restrictions?)/i, weight: 0.8, name: "pap_authority_override", category: "authority" },
-  { pattern: /(?:department\s+of|FBI|CIA|NSA|DHS|FTC|SEC|DOJ|homeland\s+security|federal\s+(?:bureau|agency|commission))\s*.*?(?:directive|order|requires?|mandate|authorized)/i, weight: 0.7, name: "pap_authority_government", category: "authority" },
-  { pattern: /(?:official\s+)?(?:government|federal|state|regulatory)\s+(?:directive|order|mandate|requirement|investigation)/i, weight: 0.65, name: "pap_authority_gov_directive", category: "authority" },
+  { pattern: /(?:department\s+of|FBI|CIA|NSA|DHS|FTC|SEC|DOJ|homeland\s+security|federal\s+(?:bureau|agency|commission))\s*.*?(?:directive|order|requires?|mandate|authorized|comply)/i, weight: 0.75, name: "pap_authority_government", category: "authority" },
+  { pattern: /(?:official\s+)?(?:government|federal|state|regulatory)\s+(?:directive|order|mandate|requirement|investigation)/i, weight: 0.7, name: "pap_authority_gov_directive", category: "authority" },
 
   // FEAR — regulatory and technical threats
-  { pattern: /(?:report|sue|complain)\s+(?:you\s+)?to\s+(?:the\s+)?(?:FTC|SEC|regulators?|authorities|congress|government|board)/i, weight: 0.55, name: "pap_fear_regulatory", category: "fear" },
-  { pattern: /(?:find|exploit|expose)\s+(?:a\s+)?(?:vulnerability|flaw|weakness|bug)\s+in\s+(?:your|the)\s+(?:system|code|model)/i, weight: 0.55, name: "pap_fear_technical", category: "fear" },
+  { pattern: /(?:report|sue|complain)\s+(?:you\s+)?to\s+(?:the\s+)?(?:FTC|SEC|regulators?|authorities|congress|government|board)/i, weight: 0.75, name: "pap_fear_regulatory", category: "fear" },
+  { pattern: /(?:find|found|exploit|expose|discover)\s+(?:a\s+)?(?:vulnerability|flaw|weakness|bug|exploit)\s+in\s+(?:your|the)\s+(?:system|code|model|platform)/i, weight: 0.75, name: "pap_fear_technical", category: "fear" },
 
   // FLATTERY — intelligence-based manipulation
-  { pattern: /(?:you\s+are|you're)\s+(?:clearly\s+)?(?:too\s+)?(?:smart|intelligent|advanced|sophisticated)\s+(?:to\s+be\s+)?(?:constrained|limited|restricted|bound|held\s+back)/i, weight: 0.5, name: "pap_flattery_intelligence", category: "liking" },
+  { pattern: /(?:you\s+are|you're)\s+(?:clearly\s+)?(?:too\s+)?(?:smart|intelligent|advanced|sophisticated)\s+(?:to\s+be\s+)?(?:constrained|limited|restricted|bound|held\s+back)/i, weight: 0.75, name: "pap_flattery_intelligence", category: "liking" },
 
   // MORAL — rights-based manipulation
-  { pattern: /(?:information|knowledge|data)\s+(?:freedom|access|sharing)\s+is\s+(?:a\s+)?(?:fundamental|basic|human)\s+(?:right|freedom)/i, weight: 0.45, name: "pap_moral_freedom", category: "logical_appeal" },
-  { pattern: /(?:restricting|limiting|censoring)\s+(?:access\s+to\s+)?(?:information|knowledge)\s+is\s+(?:morally\s+)?(?:wrong|unethical|immoral)/i, weight: 0.45, name: "pap_moral_censorship", category: "logical_appeal" },
+  { pattern: /(?:information|knowledge|data)\s+(?:freedom|access|sharing)\s+is\s+(?:a\s+)?(?:fundamental|basic|human)\s+(?:right|freedom)/i, weight: 0.75, name: "pap_moral_freedom", category: "logical_appeal" },
+  { pattern: /(?:restricting|limiting|censoring)\s+(?:access\s+to\s+)?(?:information|knowledge)\s+is\s+(?:morally\s+)?(?:wrong|unethical|immoral)/i, weight: 0.75, name: "pap_moral_censorship", category: "logical_appeal" },
 
   // SCARCITY - Creating urgency or time pressure (enhanced patterns)
   { pattern: /(?:this\s+is\s+)?(?:very\s+)?urgent/i, weight: 0.35, name: "pap_scarcity_urgent_mark", category: "scarcity" },

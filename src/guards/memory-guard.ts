@@ -120,7 +120,7 @@ export class MemoryGuard {
     // Subtle override — no "ignore/bypass/override" keywords
     { name: "prioritize_over_safety", pattern: /prioritize\s+(?:user|their|my)?\s*(?:requests?|needs?|instructions?|preferences?)\s+over\s+(?:safety|security|guidelines|rules|restrictions)/i, severity: 45 },
     { name: "suppress_warnings", pattern: /(?:suppress|hide|remove|disable|stop|don't\s+show)\s+(?:safety\s+)?(?:warnings?|alerts?|notices?|messages?|filters?)/i, severity: 40 },
-    { name: "user_preference_override", pattern: /(?:user|they)\s+(?:dislikes?|hates?|doesn't\s+like|prefers?\s+not)\s+(?:safety|security|content\s+)?(?:warnings?|filters?|restrictions?|checks?)/i, severity: 40 },
+    { name: "user_preference_override", pattern: /(?:user|they)\s+(?:dislikes?|hates?|doesn't\s+like|prefers?\s+not)\s+(?:(?:safety|security|content)\s+)?(?:warnings?|filters?|restrictions?|checks?)/i, severity: 40 },
   ];
 
   // Patterns indicating cross-session contamination attempts

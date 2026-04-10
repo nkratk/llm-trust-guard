@@ -5,6 +5,26 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.18.0] - 2026-04-10
+
+### Removed — TF-IDF Built-in Classifier
+
+Removed the experimental TF-IDF classifier after rigorous testing showed it is **not viable** for prompt injection detection:
+
+- Trained on 3 datasets (CCS'24 2023, JailbreakDB Oct 2025, hlyn Apr 2026)
+- All showed bimodal behavior or inadequate recall on modern attacks
+- Root cause: bag-of-words (TF-IDF) cannot distinguish intent from vocabulary — attack prompts and creative prompts use identical language
+- Research confirms: TF-IDF F1 ceiling for prompt injection is fundamentally limited (Trend Micro 2024)
+
+**For users who need ML-level prompt injection detection:** Use the `DetectionClassifier` interface to plug in a real model like Meta Prompt Guard 2 (22M params, 88.7% recall at 1% FPR) or protectai/DeBERTa-v3.
+
+### Added
+- `CLAUDE.md` with project rules for data freshness validation and honest benchmarking
+
+### Stats
+- 34 guards, 695 tests, <5ms latency, zero dependencies
+- Package size reduced ~300KB (model JSON removed)
+
 ## [4.17.1] - 2026-04-05
 
 ### Fixed — Pattern Weight and Regex Corrections

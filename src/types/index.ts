@@ -453,7 +453,7 @@ export interface TrustGuardConfig {
     alertThreshold?: number;
     budgetWindowMs?: number;
   };
-  // Pluggable ML detection classifier
+  // Pluggable ML detection classifier (e.g., Meta Prompt Guard 2, protectai/DeBERTa)
   classifier?: import("../detection-backend").DetectionClassifier;
   /**
    * Global sensitivity mode — cascades to all threshold-based guards.

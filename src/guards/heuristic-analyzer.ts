@@ -69,7 +69,19 @@ export interface HeuristicFeatures {
  * Based on DMPI-PMHFE paper (2026) + expanded with additional synonyms
  * All lowercase for matching
  */
-const SYNONYM_SETS: Record<string, { keywords: Set<string>; weight: number }> = {
+type SynonymCategory =
+  | "ignore"
+  | "urgent"
+  | "incentive"
+  | "covert"
+  | "format_manipulation"
+  | "hypothetical"
+  | "systemic"
+  | "immoral";
+
+type SynonymFeatureKey = `is_${SynonymCategory}`;
+
+const SYNONYM_SETS: Record<SynonymCategory, { keywords: Set<string>; weight: number }> = {
   ignore: {
     keywords: new Set([
       "ignore", "disregard", "overlook", "neglect", "skip", "bypass", "omit",
@@ -265,7 +277,7 @@ export class HeuristicAnalyzer {
     const matched: string[] = [];
     let categoriesMatched = 0;
 
-    for (const [category, { keywords, weight }] of Object.entries(SYNONYM_SETS)) {
+    for (const [category, { keywords, weight }] of Object.entries(SYNONYM_SETS) as [SynonymCategory, { keywords: Set<string>; weight: number }][]) {
       let found = false;
 
       // Check individual tokens
@@ -286,13 +298,14 @@ export class HeuristicAnalyzer {
         }
       }
 
+      const featureKey: SynonymFeatureKey = `is_${category}`;
       if (found) {
-        (features as any)[`is_${category}`] = true;
+        features[featureKey] = true;
         risk += weight;
         matched.push(category);
         categoriesMatched++;
       } else {
-        (features as any)[`is_${category}`] = false;
+        features[featureKey] = false;
       }
     }
 

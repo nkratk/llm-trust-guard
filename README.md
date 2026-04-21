@@ -122,7 +122,7 @@ const toolResult = guard.validateToolResult('search', toolOutput);
 const output = guard.filterOutput(llmResponse, session.role);
 ```
 
-## All 31 Guards
+## All 34 Guards
 
 ### Input Guards (before LLM)
 
@@ -174,6 +174,14 @@ const output = guard.filterOutput(llmResponse, session.role);
 | ExternalDataGuard | External data validation before LLM context | Source trust + injection + secret scan |
 | AgentSkillGuard | Malicious plugin/tool detection (OpenClaw) | Backdoor signatures + typosquatting |
 | SessionIntegrityGuard | Session hijacking, permission escalation | Binding + sequence + timeout |
+
+### Multi-Agent Guards (OWASP ASI07)
+
+| Guard | Purpose | Detection |
+|-------|---------|-----------|
+| SpawnPolicyGuard | Agent spawn policy enforcement | CSP-style allowlists, max delegation depth |
+| DelegationScopeGuard | Agent-to-agent scope downscoping | OAuth-style parent-child scope subset |
+| TrustTransitivityGuard | Trust chain validation | X.509-style chain depth + min trust score |
 
 ### Pluggable Detection
 
@@ -248,7 +256,7 @@ MIT
 
 ## Links
 
-- [Python package (PyPI)](https://pypi.org/project/llm-trust-guard/) — same 31 guards, zero dependencies
+- [Python package (PyPI)](https://pypi.org/project/llm-trust-guard/) — same 34 guards, zero dependencies
 - [OWASP Top 10 for LLMs 2025](https://genai.owasp.org/resource/owasp-top-10-for-llm-applications-2025/)
 - [OWASP Top 10 for Agentic Applications 2026](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)
 - [MITRE ATLAS](https://atlas.mitre.org/)

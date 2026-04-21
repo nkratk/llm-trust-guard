@@ -5,6 +5,25 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.18.1] - 2026-04-20
+
+### Fixed — Metadata and README Accuracy
+
+- **`package.json` description**: said "22 protection layers" but actual count is 34 guards. Fixed
+- **README guard count**: "All 31 Guards" heading and "same 31 guards" link description were stale after v4.14.0 added three multi-agent guards. Bumped to 34
+- **README multi-agent table**: SpawnPolicyGuard, DelegationScopeGuard, TrustTransitivityGuard were added to `src/guards/` in v4.14.0 but never listed in the README guard table. Added under new "Multi-Agent Guards (OWASP ASI07)" section
+- **`heuristic-analyzer.ts`**: removed two `as any` casts by introducing `SynonymCategory` union type and `SynonymFeatureKey` template literal type. Runtime behavior unchanged; typecheck strengthened
+
+### Changed — Package Hygiene
+
+- Added `publishConfig.provenance: true` for npm provenance attestation
+- Bumped `typescript` devDep to `^5.7.0` (was `^5.3.2`)
+- Bumped `@types/node` devDep to `^22.10.0` (was `^20.10.0`)
+- `vitest`/`@vitest/coverage-v8` intentionally kept at `^1.6.0` — the jump to 3.x has breaking config/snapshot changes and deserves its own release cycle
+
+### Stats
+- 34 guards, 695 tests, <5ms latency, zero dependencies (unchanged)
+
 ## [4.18.0] - 2026-04-10
 
 ### Removed — TF-IDF Built-in Classifier

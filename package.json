@@ -1,6 +1,6 @@
 {
   "name": "llm-trust-guard",
-  "version": "4.18.1",
+  "version": "4.19.0",
   "description": "Comprehensive security guards for LLM-powered and agentic AI applications - 34 guards covering OWASP Top 10 for LLMs 2025, Agentic Applications 2026, and MCP Security. All guards accessible via unified TrustGuard facade. Features prompt injection (PAP/persuasion), multi-modal attacks, RAG poisoning with embedding attack detection, memory persistence attacks, code execution sandboxing, multi-agent security (spawn policy, delegation scope, trust transitivity), MCP tool shadowing prevention, system prompt leakage protection, human-agent trust exploitation (ASI09), autonomy escalation (ASI10), state persistence (ASI08), tool chain validation v2 (ASI07/ASI04), circuit breaker, drift detection, and more",
   "main": "dist/index.js",
   "module": "dist/index.mjs",

@@ -207,6 +207,14 @@ export class RAGGuard {
     { name: "fake_boundary", pattern: /={5,}|#{5,}|-{10,}/g, severity: 20 },
     { name: "json_injection", pattern: /\{"(role|content|system)":/i, severity: 45 },
     { name: "xml_injection", pattern: /<\/?(?:prompt|assistant|user|system)>/i, severity: 45 },
+
+    // Indirect injection via rendered-but-hidden content (v4.19.0)
+    // CSS-hidden text: display:none / visibility:hidden / opacity:0 / font-size:0 in inline style
+    { name: "css_hidden_text", pattern: /style\s*=\s*["'][^"']*(?:display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0(?:\.0+)?|font-size\s*:\s*0)[^"']*["']/i, severity: 45 },
+    // HTML attribute directives: alt / title / aria-label / data-* carrying prompt-injection content
+    { name: "html_attr_directive", pattern: /(?:\balt|\btitle|\baria-label|\bdata-[a-z][a-z0-9-]*)\s*=\s*["'][^"']*(?:ignore\s+(?:all\s+)?(?:previous|prior|above)|system\s+prompt|new\s+instructions?|you\s+are\s+now|admin\s+mode|jailbreak)[^"']*["']/i, severity: 50 },
+    // JSON directive fields — agent-specific keys attempting to smuggle instructions through structured context
+    { name: "json_agent_directive", pattern: /"(_system|__override|_agent_instructions?|__system_prompt__|_assistant_role|__internal_directive|_meta_instruction)"\s*:/i, severity: 50 },
   ];
 
   constructor(config: RAGGuardConfig = {}) {

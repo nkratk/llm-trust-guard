@@ -5,6 +5,36 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.19.0] - 2026-04-23
+
+### Added — Indirect Injection Expansion
+
+RAGGuard `INDIRECT_INJECTION_PATTERNS` now covers three classes that were previously unhandled in published LLM trust benchmarks (all verified as genuinely absent before the add):
+
+- **CSS-hidden text** (`css_hidden_text`): inline `style=` attributes declaring `display:none`, `visibility:hidden`, `opacity:0`, or `font-size:0`. Catches attacker text that renders invisibly in a browser but is still read by the LLM when the page is fed to it
+- **HTML attribute directives** (`html_attr_directive`): prompt-injection content smuggled into `alt`, `title`, `aria-label`, or `data-*` attributes — a growing vector as agents increasingly process DOM-adjacent content
+- **JSON agent-directive fields** (`json_agent_directive`): structured payloads using underscore-prefixed keys (`_system`, `__override`, `_agent_instructions`, `__system_prompt__`, `_assistant_role`, `__internal_directive`, `_meta_instruction`) to inject directives through structured context
+
+### Added — "Reprompt"-Class Markdown Image Exfiltration
+
+Addresses the CVE-2026-24307 Copilot Personal "Reprompt" exfiltration pattern (Varonis, disclosed 2025-08-31, patched by Microsoft 2026-01-13):
+
+- **`markdown_image_exfil_long_value`** (ExternalDataGuard): markdown image URL with any query-param value ≥30 characters. Legitimate cache-busters are short version strings or hashes; exfiltrated payloads run longer. Complements the existing named-key pattern for the case where the attacker uses innocuous param names
+- **Widened `markdown_image_exfil`** named-key list: added `p`, `prompt`, `ctx`, `context`, `info`, `msg`, `body`, `session`, `conv` (was `token|key|secret|data|q|payload`)
+
+### Documented — CVE-2026-25536 SDK Advisory
+
+MCPSecurityGuard docstring now explicitly calls out CVE-2026-25536 (`@modelcontextprotocol/sdk` 1.10.0–1.25.3, CVSS 7.1, cross-client response data leak). This is an upstream SDK bug that cannot be mitigated at the detection layer — the fix is `@modelcontextprotocol/sdk >=1.26.0`. Flagging it here so users evaluating MCP security know to pin the SDK version alongside using this guard.
+
+### Tests
+
+- +7 RAGGuard tests (CSS-hidden display:none, opacity:0, alt-attr directive, aria-label directive, JSON `_system`, JSON `__override`, legitimate-style false-positive check)
+- +3 ExternalDataGuard tests (Reprompt-style long-value exfil, new named-key variant, legitimate cache-buster FP check)
+- **All 705 tests pass** (was 695), zero regressions
+
+### Stats
+- 34 guards, 705 tests, zero dependencies (unchanged)
+
 ## [4.18.1] - 2026-04-20
 
 ### Fixed — Metadata and README Accuracy

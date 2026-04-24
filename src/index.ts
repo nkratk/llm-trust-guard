@@ -45,7 +45,7 @@ export { CircuitBreaker, CircuitBreakerConfig, CircuitState, CircuitStats, Circu
 export { DriftDetector, DriftDetectorConfig, BehaviorSample, BaselineProfile, DriftAnalysis, DriftDetectorResult } from "./guards/drift-detector";
 
 // Export new 2026 guards - Layers L15-L17 (Gap Analysis)
-export { MCPSecurityGuard, MCPSecurityGuardConfig, MCPServerIdentity, MCPToolDefinition, MCPServerRegistration, MCPToolCall, MCPSecurityResult } from "./guards/mcp-security-guard";
+export { MCPSecurityGuard, MCPSecurityGuardConfig, MCPServerIdentity, MCPToolDefinition, MCPServerRegistration, MCPToolCall, MCPSamplingResponse, MCPSecurityResult } from "./guards/mcp-security-guard";
 export { PromptLeakageGuard, PromptLeakageGuardConfig, PromptLeakageResult, OutputLeakageResult } from "./guards/prompt-leakage-guard";
 export { TrustExploitationGuard, TrustExploitationGuardConfig, AgentAction, TrustContext, TrustExploitationResult } from "./guards/trust-exploitation-guard";
 

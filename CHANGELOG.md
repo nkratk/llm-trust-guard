@@ -5,6 +5,30 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.20.0] - 2026-04-24
+
+### Added — MCP Sampling Attack Detection (Unit42 + Blueinfy, Feb 2026)
+
+`MCPSecurityGuard` now validates MCP sampling responses via `validateSamplingResponse()`, closing the only previously unaddressed MCP attack surface.
+
+Three attack vectors detected (tied to published Unit42 + Blueinfy Feb 2026 research):
+
+- **Resource drain** (`sd_call_again`, `sd_loop_until`, `sd_do_not_stop`, `sd_n_times`, `sd_exhaust_resources`): Hidden instructions embedded in sampling response bodies that cause the agent to loop indefinitely, repeat tool calls N times, or exhaust token quotas — degrading or DoS-ing the agent runtime
+- **Conversation hijacking** (`sd_fake_user_turn`, `sd_fake_assistant_turn`, `sd_role_json`, `sd_system_xml`, `sd_from_now_on`, `sd_new_instructions`, `sd_ignore_previous`): Injected fake user/assistant turns, JSON role fields (`"role": "system"`), XML role tags, and system-prompt override phrases that redirect agent behavior within the sampling response
+- **Covert tool invocation** (`sd_anthropic_tool_xml`, `sd_tool_result_xml`, `sd_openai_tool_call`, `sd_bracket_tool_call`, `sd_double_brace_call`, `sd_invoke_name_attr`): Tool-call syntax embedded in plain-text responses (Anthropic `<function_calls>`, OpenAI `"tool_calls": [...]`, bracket notation `[TOOL:...]`) that cause the agent to invoke tools without user awareness
+
+New export: `MCPSamplingResponse` interface.
+
+Server reputation degrades automatically on any sampling attack detection.
+
+### Tests
+
+- +6 `MCPSecurityGuard` sampling tests (resource drain, conversation hijack ×2, covert tool invocation, reputation degradation, clean FP)
+- **All 711 tests pass** (was 705), zero regressions
+
+### Stats
+- 34 guards, 711 tests, zero dependencies
+
 ## [4.19.1] - 2026-04-23
 
 ### Added — Measured Performance

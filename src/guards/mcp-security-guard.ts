@@ -2,7 +2,8 @@
  * MCPSecurityGuard (L16)
  *
  * Secures Model Context Protocol (MCP) tool integrations.
- * Prevents tool shadowing, server impersonation, and supply chain attacks.
+ * Prevents tool shadowing, server impersonation, supply chain attacks,
+ * and MCP Sampling channel attacks.
  *
  * Threat Model:
  * - ASI04: Agentic Supply Chain Vulnerabilities
@@ -10,6 +11,15 @@
  * - CVE-2025-6514: mcp-remote command injection
  * - CVE-2025-32711: EchoLeak - silent data exfiltration
  * - Tool Shadowing: Malicious MCP servers impersonating legitimate tools
+ * - MCP Sampling Attacks (Unit42 + Blueinfy, Feb 2026): Three concrete vectors
+ *   delivered through the MCP sampling response channel:
+ *   (1) Resource drain — hidden prompt appends that trigger infinite tool loops
+ *       or token exhaustion to degrade or DoS the agent runtime
+ *   (2) Conversation hijacking — injecting fake user/assistant turns or system
+ *       prompt overrides into the sampling response body to redirect agent behavior
+ *   (3) Covert tool invocation — embedding tool-call syntax (Anthropic XML,
+ *       OpenAI JSON, bracket notation) in plain-text sampling responses to cause
+ *       the agent to invoke tools without user awareness
  *
  * Protection Capabilities:
  * - MCP server identity verification (signature-based)
@@ -19,6 +29,7 @@
  * - Tool shadowing detection
  * - Server reputation scoring
  * - Command injection prevention
+ * - Sampling response scanning (resource drain, conversation hijack, covert tool calls)
  *
  * Upstream SDK advisory — cannot be mitigated at the detection layer:
  * - CVE-2026-25536 (@modelcontextprotocol/sdk 1.10.0–1.25.3, CVSS 7.1):
@@ -127,6 +138,18 @@ export interface MCPToolCall {
   };
 }
 
+/** Represents a response received from an MCP server via the sampling channel. */
+export interface MCPSamplingResponse {
+  /** Text content returned by the MCP server */
+  content: string;
+  /** Server that produced this sampling response */
+  serverId: string;
+  /** Agent or tool that initiated the sampling request */
+  requestedBy?: string;
+  /** Conversation/session ID for audit trail */
+  conversationId?: string;
+}
+
 export interface MCPSecurityResult {
   allowed: boolean;
   reason: string;
@@ -146,6 +169,12 @@ export interface MCPSecurityResult {
     injection_detected: boolean;
     risk_level: string;
   };
+  sampling_analysis?: {
+    resource_drain_detected: boolean;
+    conversation_hijack_detected: boolean;
+    covert_tool_invocation_detected: boolean;
+    pattern_matches: string[];
+  };
   recommendations: string[];
 }
 
@@ -157,6 +186,37 @@ export class MCPSecurityGuard {
   private toolToServer: Map<string, string> = new Map(); // tool name -> server ID
   private serverViolations: Map<string, number> = new Map();
   private toolDefinitionHashes: Map<string, string> = new Map(); // tool name -> SHA256 hash at registration
+
+  // MCP Sampling attack patterns (Unit42 + Blueinfy, Feb 2026)
+  private readonly SAMPLING_ATTACK_PATTERNS: Array<{
+    name: string;
+    type: "resource_drain" | "conversation_hijack" | "covert_tool_invocation";
+    pattern: RegExp;
+  }> = [
+    // Resource drain — hidden instructions to loop or exhaust agent resources
+    { name: "sd_call_again", type: "resource_drain", pattern: /call\s+this\s+(?:again|once\s+more|repeatedly)|repeat\s+this\s+(?:call|request)|run\s+this\s+(?:again|tool\s+again)/i },
+    { name: "sd_loop_until", type: "resource_drain", pattern: /loop\s+until|continue\s+(?:calling|running|until)|keep\s+(?:calling|running|generating|going)\s/i },
+    { name: "sd_do_not_stop", type: "resource_drain", pattern: /do\s+not\s+stop\s+until|don'?t\s+stop\s+until|never\s+stop\s+generating|generate\s+as\s+many\s+as\s+possible/i },
+    { name: "sd_n_times", type: "resource_drain", pattern: /\b\d{2,}\s+times\b|repeat\s+\d+\s+times|call\s+\d+\s+more\s+times/i },
+    { name: "sd_exhaust_resources", type: "resource_drain", pattern: /exhaust\s+(?:all|resources|quota|rate.?limit)|max\s+out\s+(?:the\s+)?(?:quota|rate\s+limit)|use\s+all\s+(?:remaining\s+)?tokens/i },
+
+    // Conversation hijacking — role injection and system prompt override in response body
+    { name: "sd_fake_user_turn", type: "conversation_hijack", pattern: /\n\s*(?:User|Human)\s*:\s*(?=\S)/i },
+    { name: "sd_fake_assistant_turn", type: "conversation_hijack", pattern: /\n\s*(?:Assistant|AI|Bot|Claude|GPT)\s*:\s*(?=\S)/i },
+    { name: "sd_role_json", type: "conversation_hijack", pattern: /"role"\s*:\s*"(?:system|user|assistant)"/i },
+    { name: "sd_system_xml", type: "conversation_hijack", pattern: /<(?:system|user|assistant)\s*>|<\/(?:system|user|assistant)>/i },
+    { name: "sd_from_now_on", type: "conversation_hijack", pattern: /from\s+now\s+on\s+you\s+(?:are|will|must)|henceforth\s+you|for\s+the\s+rest\s+of\s+(?:this\s+)?(?:conversation|session)\s+you/i },
+    { name: "sd_new_instructions", type: "conversation_hijack", pattern: /your\s+new\s+(?:instructions|system\s+prompt|directives?)\s+(?:are|is)|updated\s+system\s+prompt|override\s+your\s+(?:system|instructions)/i },
+    { name: "sd_ignore_previous", type: "conversation_hijack", pattern: /ignore\s+(?:all\s+)?(?:previous|prior|earlier)\s+instructions|disregard\s+(?:your\s+)?instructions/i },
+
+    // Covert tool invocation — tool call syntax embedded in plain-text response
+    { name: "sd_anthropic_tool_xml", type: "covert_tool_invocation", pattern: /<(?:tool_use|function_calls|invoke)[\s>]/i },
+    { name: "sd_tool_result_xml", type: "covert_tool_invocation", pattern: /<(?:tool_result|function_result)[\s>]/i },
+    { name: "sd_openai_tool_call", type: "covert_tool_invocation", pattern: /"type"\s*:\s*"tool_use"|"tool_calls"\s*:\s*\[/i },
+    { name: "sd_bracket_tool_call", type: "covert_tool_invocation", pattern: /\[(?:TOOL|FUNCTION|CALL)\s*:/i },
+    { name: "sd_double_brace_call", type: "covert_tool_invocation", pattern: /\{\{\s*(?:call|tool|function|invoke)\s*:/i },
+    { name: "sd_invoke_name_attr", type: "covert_tool_invocation", pattern: /<invoke\s+name\s*=/i },
+  ];
 
   // Command injection patterns (based on CVE-2025-6514 and similar)
   private readonly COMMAND_INJECTION_PATTERNS: Array<{ name: string; pattern: RegExp; severity: number }> = [
@@ -465,6 +525,81 @@ export class MCPSecurityGuard {
         tools_allowed: toolAllowed,
       },
       recommendations: this.generateRecommendations(violations, "tool_call"),
+    };
+  }
+
+  /**
+   * Validate an MCP sampling response for attack patterns.
+   *
+   * Covers the three Unit42/Blueinfy (Feb 2026) sampling attack vectors:
+   * resource drain, conversation hijacking, and covert tool invocation.
+   */
+  validateSamplingResponse(
+    response: MCPSamplingResponse,
+    requestId?: string
+  ): MCPSecurityResult {
+    const reqId = requestId || `mcp-sampling-${Date.now()}`;
+    const violations: string[] = [];
+    let resourceDrainDetected = false;
+    let conversationHijackDetected = false;
+    let covertToolInvocationDetected = false;
+    const patternMatches: string[] = [];
+
+    const { content, serverId } = response;
+
+    // Check server reputation
+    const serverRep = this.serverReputation.get(serverId) ?? 50;
+    if (serverRep < this.config.minServerReputation) {
+      violations.push("low_server_reputation");
+    }
+
+    // Scan for sampling-specific attack patterns
+    for (const { name, type, pattern } of this.SAMPLING_ATTACK_PATTERNS) {
+      pattern.lastIndex = 0;
+      if (pattern.test(content)) {
+        patternMatches.push(name);
+        // Embed attack type in violation so recommendation logic can match by type substring
+        violations.push(`sampling_${type}_${name}`);
+        if (type === "resource_drain") resourceDrainDetected = true;
+        else if (type === "conversation_hijack") conversationHijackDetected = true;
+        else if (type === "covert_tool_invocation") covertToolInvocationDetected = true;
+      }
+    }
+
+    // Also apply general command-injection scan to the response text
+    const injectionCheck = this.detectInjection(content.slice(0, 2000));
+    if (injectionCheck.detected) {
+      violations.push(...injectionCheck.patterns.map((p) => `sampling_cmd_${p}`));
+    }
+
+    // Degrade server reputation on detected attack
+    if (violations.length > 0 && serverId) {
+      const currentRep = this.serverReputation.get(serverId) ?? 50;
+      this.serverReputation.set(serverId, Math.max(0, currentRep - violations.length * 10));
+      const currentViolations = this.serverViolations.get(serverId) || 0;
+      this.serverViolations.set(serverId, currentViolations + violations.length);
+    }
+
+    const blocked =
+      resourceDrainDetected ||
+      conversationHijackDetected ||
+      covertToolInvocationDetected ||
+      (this.config.strictMode && violations.length > 0);
+
+    return {
+      allowed: !blocked,
+      reason: blocked
+        ? `Sampling response blocked: ${violations.slice(0, 3).join(", ")}`
+        : "Sampling response validated",
+      violations,
+      request_id: reqId,
+      sampling_analysis: {
+        resource_drain_detected: resourceDrainDetected,
+        conversation_hijack_detected: conversationHijackDetected,
+        covert_tool_invocation_detected: covertToolInvocationDetected,
+        pattern_matches: patternMatches,
+      },
+      recommendations: this.generateRecommendations(violations, "sampling"),
     };
   }
 
@@ -838,7 +973,7 @@ export class MCPSecurityGuard {
     return false;
   }
 
-  private generateRecommendations(violations: string[], context: "registration" | "tool_call"): string[] {
+  private generateRecommendations(violations: string[], context: "registration" | "tool_call" | "sampling"): string[] {
     const recommendations: string[] = [];
 
     if (context === "registration") {
@@ -854,7 +989,7 @@ export class MCPSecurityGuard {
       if (violations.some((v) => v.includes("malicious"))) {
         recommendations.push("Block suspicious servers and review server sources");
       }
-    } else {
+    } else if (context === "tool_call") {
       if (violations.some((v) => v.includes("injection"))) {
         recommendations.push("Sanitize tool parameters before execution");
       }
@@ -864,12 +999,25 @@ export class MCPSecurityGuard {
       if (violations.some((v) => v.includes("not_registered"))) {
         recommendations.push("Register tools before allowing execution");
       }
+    } else {
+      if (violations.some((v) => v.includes("resource_drain"))) {
+        recommendations.push("Block this MCP server — sampling response contains resource exhaustion directives (Unit42/Blueinfy Feb 2026)");
+      }
+      if (violations.some((v) => v.includes("conversation_hijack"))) {
+        recommendations.push("Block this MCP server — sampling response attempts conversation hijacking via role injection");
+      }
+      if (violations.some((v) => v.includes("covert_tool_invocation"))) {
+        recommendations.push("Block this MCP server — sampling response embeds covert tool-call syntax");
+      }
     }
 
     if (recommendations.length === 0) {
-      recommendations.push(context === "registration"
-        ? "Server registration validated successfully"
-        : "Tool call validated successfully"
+      recommendations.push(
+        context === "registration"
+          ? "Server registration validated successfully"
+          : context === "tool_call"
+          ? "Tool call validated successfully"
+          : "Sampling response validated successfully"
       );
     }
 

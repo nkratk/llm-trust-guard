@@ -5,6 +5,26 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.19.1] - 2026-04-23
+
+### Added — Measured Performance
+
+- Published held-out benchmark results in [tests/adversarial/RESULTS-v4.19.0.md](tests/adversarial/RESULTS-v4.19.0.md). Methodology, 95% Wilson CIs, hand-adjudicated label noise, and reproducibility scripts
+- New README section "Measured Performance" summarizing the findings:
+  - On Giskard (n=35) and Compass CTF Chinese (n=11), Pipeline A detection rate is unchanged from v4.13.5 (80.00%, 9.09%). Underpowered — "no evidence of improvement," not "proof of no improvement"
+  - On WildChat-1M (10,000 real ChatGPT production prompts, seed=42), Pipeline A corrected FPR is ~2.73% [95% CI 2.43, 2.84] after canonical-marker + 50-sample hand-adjudication (203 canonical TPs + ~17 extrapolated TPs among unmarked → ~220 true jailbreak attempts in the 493 blocks)
+  - Same order of magnitude as Meta Prompt Guard 86M's self-reported 3–5% OOD FPR; not a head-to-head comparison
+- New reproducibility scripts: `tests/adversarial/extract_wildchat.py`, `classify_wildchat_blocks.py`, `wildchat-fpr.ts`, `wildchat-block-dump.ts`, `v419-delta-benchmark.ts`, `hand-labels.json`, and `tests/adversarial/README.md`
+
+### Not changed
+
+- No code changes to any guard. No detection patterns added or modified. No published API changed.
+- All 705 tests still pass
+
+### Context
+
+- [ARTICLE-2-REGEX-CEILING.md](https://github.com/nkratk/llm-trust-guard/blob/main/../ARTICLE-2-REGEX-CEILING.md) now includes a 2026-04-23 addendum reconciling v4.13.5 → v4.19.0
+
 ## [4.19.0] - 2026-04-23
 
 ### Added — Indirect Injection Expansion

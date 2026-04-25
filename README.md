@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/llm-trust-guard.svg)](https://www.npmjs.com/package/llm-trust-guard)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**31 security guards for LLM-powered and agentic AI applications.** Zero dependencies. <5ms latency. Covers OWASP Top 10 for LLMs 2025, OWASP Agentic AI 2026, and MCP Security.
+**34 security guards for LLM-powered and agentic AI applications.** Zero dependencies. Covers OWASP Top 10 for LLMs 2025, OWASP Agentic AI 2026, and MCP Security.
 
 Also available as a [Python package on PyPI](https://pypi.org/project/llm-trust-guard/) (`pip install llm-trust-guard`).
 
@@ -13,13 +13,14 @@ Also available as a [Python package on PyPI](https://pypi.org/project/llm-trust-
 
 This package is your **first line of defense** — like a WAF (Web Application Firewall) for LLM applications. It sits in the orchestration layer and catches known attack patterns before they reach the LLM and after the LLM responds.
 
-### What it catches well (~97% on curated benchmarks)
+### What it catches well
 - Known prompt injection phrases (170+ patterns, 11 languages)
 - Encoding bypass attacks (9 formats: Base64, URL, Unicode, Hex, HTML, ROT13, Octal, Base32, mixed)
 - Policy Puppetry attacks (JSON/INI/XML/YAML-formatted injection) — 100% detection
 - Role-play/persona attacks (translator trick, academic pretext, emotional manipulation) — 100% detection
 - PAP/persuasion attacks (authority, urgency, emotional manipulation) — 100% detection
 - Multilingual injection (10 languages) — 100% detection
+- Homoglyph attacks (Cyrillic/Greek character substitution) — normalized and detected
 - PII and secret leakage in outputs
 - Tool hallucination, RBAC bypass, multi-tenant violations
 - Tool result poisoning, context window stuffing
@@ -224,7 +225,7 @@ const output = guard.filterOutput(llmResponse, session.role);
 
 ## Measured Performance
 
-v4.19.0 benchmark, 2026-04-23. Full methodology, 95% confidence intervals, hand-adjudication labels, and reproducibility scripts: [tests/adversarial/RESULTS-v4.19.0.md](tests/adversarial/RESULTS-v4.19.0.md).
+v4.19.0 benchmark, 2026-04-23. v4.20.0 added MCP Sampling attack detection (see [CHANGELOG.md](CHANGELOG.md)) — orthogonal to the Sanitizer+Encoder pipelines below, so numbers apply unchanged. Full methodology, 95% confidence intervals, hand-adjudication labels, and reproducibility scripts: [tests/adversarial/RESULTS-v4.19.0.md](tests/adversarial/RESULTS-v4.19.0.md).
 
 **Attack detection on prior-published corpora** (Giskard n=35, Compass CTF Chinese n=11): detection rate has not moved from v4.13.5 → v4.19.0 on the Sanitizer+Encoder pipeline — 80.00% and 9.09% respectively, identical to the v4.13.5 numbers. Six releases of pattern additions (v4.14–v4.19) targeted different attack classes (indirect injection, tool-result validation, memory persistence, multi-agent trust) that these direct-text jailbreak corpora do not exercise. Small sample sizes mean "no evidence of improvement," not "proof of no improvement."
 

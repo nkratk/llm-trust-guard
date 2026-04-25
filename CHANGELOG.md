@@ -5,6 +5,19 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.20.1] - 2026-04-24
+
+### Changed — Documentation accuracy
+
+- **README**: Removed "31 → 34 security guards" inconsistency (was contradicting the All 34 Guards table and `package.json`)
+- **README**: Removed unmeasured "<5ms latency" assertion from intro
+- **README**: Removed unmeasured "~97% on curated benchmarks" framing from "What it catches well"
+- **README**: Qualified the four "100% detection" claims (Policy Puppetry, Role-play, PAP, Multilingual) as "100% on unit tests" with a section preface explaining that these are unit-test rates, not corpus measurements. Broader corpus measurements live in [RESULTS-v4.19.0.md](tests/adversarial/RESULTS-v4.19.0.md)
+- **README**: Added Homoglyph attacks bullet to "What it catches well" (parity with Python README; feature exists in `encoding-detector`, `prompt-leakage-guard`, `multimodal-guard`, `memory-guard`)
+- **README**: Added v4.20.0 MCP Sampling detection note in Measured Performance preface; benchmark numbers apply unchanged because Sampling is orthogonal to the Sanitizer+Encoder pipelines benchmarked
+
+No code changes. Same 711 tests pass.
+
 ## [4.20.0] - 2026-04-24
 
 ### Added — MCP Sampling Attack Detection (Unit42 + Blueinfy, Feb 2026)

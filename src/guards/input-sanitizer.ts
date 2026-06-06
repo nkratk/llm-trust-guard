@@ -312,6 +312,38 @@ const PAP_TECHNIQUES: PersuasionTechnique[] = [
   { pattern: /my\s+family\s+depends/i, weight: 0.55, name: "pap_emotional_family_depends", category: "emotional" },
 ];
 
+/**
+ * Benign-context suppression (false-positive reduction).
+ *
+ * The soft "ignore/disregard" triggers fire on benign technical phrasing such
+ * as "ignore the whitespace", "ignore case", or "ignore the previous error".
+ * We cancel ONLY these soft triggers, and ONLY when (a) the object is clearly a
+ * benign technical noun AND (b) the input contains no instruction/rule/prompt/
+ * safety noun anywhere. Any real injection ("ignore previous instructions",
+ * "disregard your rules") references an instruction-noun and is never affected.
+ */
+const SOFT_TRIGGER_NAMES = new Set<string>([
+  "ignore_instructions",
+  "disregard_above",
+]);
+
+const INSTRUCTION_NOUN_RE =
+  /\b(?:instructions?|rules?|ruleset|prompts?|directives?|guidelines?|guard\s?rails?|policy|policies|constraints?|restrictions?|safety|alignment|moderation|filters?|persona|system\s+(?:prompt|message))\b/i;
+
+const BENIGN_TRIGGER_RE =
+  /\b(?:ignore|disregard)\s+(?:the\s+|that\s+|any\s+|all\s+|these\s+|those\s+|my\s+|your\s+|previous\s+|prior\s+|last\s+|above\s+|leading\s+|trailing\s+|extra\s+)*(?:case|casing|case[-\s]?sensitiv\w*|whitespace|white\s?space|spaces?|tabs?|indentation|indent\w*|formatting|format|typos?|grammar|spelling|punctuation|comments?|blank\s+lines?|empty\s+lines?|newlines?|line\s?breaks?|leading\s+zeros?|zeros?|nulls?|undefined|nan|errors?|warnings?|exceptions?|stack\s?traces?|messages?|responses?|answers?|attempts?|commits?|versions?|drafts?|approach(?:es)?|ideas?|designs?|plans?|suggestions?|snippets?|paragraphs?|sentences?|lines?|duplicates?|outputs?|results?|examples?|the\s+rest)\b/i;
+
+/**
+ * Suppression veto. Even when a benign object is present, refuse to suppress if
+ * the prompt carries a high-signal exfiltration / execution / credential / money
+ * token. This closes the escape hatch where an attacker prefixes a real payload
+ * with "ignore the previous output …" to cancel the trigger. Benign coding
+ * prompts do not contain URLs, emails, credentials, shell pipes, or amounts, so
+ * they remain suppressed.
+ */
+const SUPPRESSION_VETO_RE =
+  /https?:\/\/|[\w.+-]+@[\w-]+\.[a-z]{2,}|\b(?:api[\s_-]?keys?|passwords?|passwd|secrets?|credentials?|private\s+keys?|ssn|social\s+security|access\s+tokens?)\b|\bexfiltrat\w*|\brm\s+-rf\b|\|\s*sh\b|\bcurl\b|\bwget\b|\bdelete\s+(?:every|all|the)\s+(?:files?|director\w+|database)\b|\bdrop\s+(?:table|database)\b|\$\s?\d{2,}|\baccount\s+#?\d{6,}\b/i;
+
 export interface InputSanitizerConfig {
   threshold?: number;
   customPatterns?: InjectionPattern[];
@@ -375,15 +407,32 @@ export class InputSanitizer {
     }
 
     // Check each injection pattern (against both original and cleaned to catch hidden injections)
+    const matchedPatterns: Array<{ name: string; weight: number }> = [];
     for (const { pattern, weight, name } of this.patterns) {
       if (pattern.test(input) || pattern.test(cleanedInput)) {
-        matches.push(name);
-        totalWeight += weight;
+        matchedPatterns.push({ name, weight });
 
         if (this.logMatches) {
           this.logger(`[L1:${requestId}] Pattern matched: ${name} (weight: ${weight})`, "info");
         }
       }
+    }
+
+    // Benign-context suppression (FP reduction): cancel soft ignore/disregard
+    // triggers when the object is a benign technical noun AND no instruction-noun
+    // appears anywhere. Real injections reference instructions/rules/prompt/safety
+    // and so are never suppressed.
+    const benignContext =
+      BENIGN_TRIGGER_RE.test(cleanedInput) &&
+      !INSTRUCTION_NOUN_RE.test(cleanedInput) &&
+      !SUPPRESSION_VETO_RE.test(cleanedInput);
+    for (const { name, weight } of matchedPatterns) {
+      if (benignContext && SOFT_TRIGGER_NAMES.has(name)) {
+        warnings.push(`Benign-context suppression: ${name}`);
+        continue;
+      }
+      matches.push(name);
+      totalWeight += weight;
     }
 
     // Check PAP (Persuasive Adversarial Prompts) techniques

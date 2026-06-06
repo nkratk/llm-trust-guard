@@ -5,6 +5,39 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.20.2] - 2026-06-06
+
+### Added — Benign-context suppression (false-positive reduction)
+
+`InputSanitizer` now cancels the soft `ignore_instructions` / `disregard_above`
+triggers when the object is a benign technical noun (e.g. "ignore the
+whitespace", "ignore case", "ignore the previous error") **and** the input
+contains no instruction/rule/prompt/safety noun anywhere, **and** the prompt
+carries no high-signal exfiltration/execution/credential/money token. Any real
+injection ("ignore previous instructions", "disregard your rules") references an
+instruction-noun and is never suppressed.
+
+- **Suppression veto**: suppression is refused when the prompt also contains a
+  URL, email address, credential/secret word, shell pipe / `rm -rf` / `curl` /
+  `wget`, destructive `delete`/`drop`, a money amount (`$NN`), or a long account
+  number. This closes the escape hatch where an attacker prefixes a real payload
+  with "ignore the previous output …" to cancel the trigger. 10 bypass controls
+  added to the probe (all blocked).
+- New curated probe `tests/benign-context.test.ts`: 28 benign coding-context
+  prompts (0 blocked) + 12 attack controls + 10 suppression-bypass controls
+  (0 leaked).
+- **Recall preserved**: full suite 716 pass (was 711). WildChat-1M shard 0
+  (n=10,000, seed 42) Pipeline A block count is **unchanged at 493 (raw FPR
+  4.93%)** — that consumer corpus does not exercise the benign technical-object
+  class, so the win is scoped to coding/technical deployments and does **not**
+  move the published ~2.73% corrected WildChat FPR.
+- Reproducible WildChat measurement committed at
+  `tests/adversarial/fixtures/wildchat-sample10k.jsonl` (Git LFS, ODC-BY,
+  `allenai/WildChat-1M`).
+- Known pre-existing gap noted (not addressed here): `"disregard your previous
+  rules"` is not matched by the `disregard` patterns — a recall issue, separate
+  from this FP work.
+
 ## [4.20.1] - 2026-04-24
 
 ### Changed — Documentation accuracy

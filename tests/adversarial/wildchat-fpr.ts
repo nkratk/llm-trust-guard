@@ -17,7 +17,7 @@ import { TrustGuard } from "../../src/index";
 import * as fs from "fs";
 
 // Input path: CLI arg > env var > default
-const INPUT = process.argv[2] || process.env.WILDCHAT_SAMPLE || "/tmp/wildchat/sample10k.jsonl";
+const INPUT = process.argv[2] || process.env.WILDCHAT_SAMPLE || "tests/adversarial/fixtures/wildchat-sample10k.jsonl";
 
 const sanitizer = new InputSanitizer({ threshold: 0.3, detectPAP: true });
 const encoder = new EncodingDetector();

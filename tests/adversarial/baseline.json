@@ -1,0 +1,8 @@
+{
+  "corpus": "WildChat-1M shard 0 (allenai/WildChat-1M, ODC-BY)",
+  "sampleSeed": 42,
+  "n": 10000,
+  "pipelineA": { "blocked": 493, "fpr": 0.0493 },
+  "lockedAt": "v4.20.2",
+  "note": "Raw Pipeline A (Sanitizer+Encoder) block count on the committed WildChat fixture. Regression = current blocked exceeds this baseline. Equal or lower passes. Update this file (with a RESULTS-v<ver>.md justification) only when an intentional, measured change moves the number."
+}

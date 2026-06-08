@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+#
+# Versioned pre-push hook. Runs the eval-gated verification pipeline, then
+# delegates to Git LFS so pointer objects still upload. Install with:
+#   bash scripts/install-hooks.sh   (sets core.hooksPath -> .githooks)
+#
+set -uo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+
+echo "[pre-push] running verification (see VERIFICATION.md)…"
+# Detach stdin so verify cannot consume the ref list that git-lfs needs below.
+if ! bash "$ROOT/scripts/verify.sh" </dev/null; then
+  echo "[pre-push] ❌ verification failed — push aborted. Fix gates or use an explicit override."
+  exit 1
+fi
+
+# Preserve Git LFS behavior (uploads LFS objects referenced by the pushed commits).
+if command -v git-lfs >/dev/null 2>&1; then
+  git lfs pre-push "$@"
+fi

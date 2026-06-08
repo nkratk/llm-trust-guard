@@ -219,12 +219,26 @@ When adding new detection patterns:
 
 #### PR Checklist
 
-- [ ] Tests pass (`npm test`)
-- [ ] Code follows style guidelines
-- [ ] Documentation updated
-- [ ] CHANGELOG.md updated (for features/fixes)
-- [ ] No console.log statements (except for intentional logging)
-- [ ] Types are properly defined
+- [ ] `npm run verify` is green (the eval-gated pipeline — see [VERIFICATION.md](VERIFICATION.md))
+- [ ] New/changed `src/` ships with tests (enforced by gate **G6**)
+- [ ] CHANGELOG.md top entry matches the version (gate **G7**)
+- [ ] `tests/adversarial/RESULTS-v<version>.md` written for any release/claim (gate **G8**)
+- [ ] `RESEARCH_LOG.md` entry added if the change cites a threat/technique/benchmark
+- [ ] No console.log statements (except intentional logging)
+
+### Verification (required before push)
+
+Run one command — it runs build, the full suite, coverage thresholds, the WildChat
+FP-regression gate, the adversarial-bypass probe, and the changelog/results checks:
+
+```bash
+npm run verify
+```
+
+This is enforced both locally (`.githooks/pre-push`, install via
+`bash scripts/install-hooks.sh`) and in CI, so it can't be skipped. See
+[VERIFICATION.md](VERIFICATION.md) for the eight gates and how each maps to our
+"don't break it / don't make it up / publish the basis" rules.
 
 ### Review Process
 

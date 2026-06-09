@@ -77,6 +77,10 @@ gate "G8 results doc present" bash -c '
   echo "  expecting $f"
   test -f "$f"'
 
+# ── G10: freshness — research re-check cadence not lapsed (date-only, no network).
+# The weekly freshness workflow does the active link/standards re-scan.
+gate "G10 freshness (re-check cadence)" python3 scripts/check-freshness.py
+
 hr
 if [ "$FAILED" = "0" ]; then
   echo "✅ verify: ALL GATES PASSED"

@@ -37,6 +37,20 @@ same thing:
 | G7 | **CHANGELOG gate**: top version == `package.json` version | release is documented | **"consumers know what changed"** |
 | G8 | **Results gate**: `tests/adversarial/RESULTS-v<version>.md` exists | claims are published & reproducible | **"publish the basis for improvement claims"** |
 | G9 | **Patch coverage**: changed `src/` lines since last tag must be ≥80% covered (`diff-cover`) | new code is *actually* tested, not hidden behind old coverage | **"new changes should have test cases"** |
+| G10 | **Freshness cadence**: `freshness.json` `lastFullScan` / each `checkedAt` within `ttlDays` (180) — `scripts/check-freshness.py`, date-only/offline | staleness *blocks* a push instead of lingering | **"definitely verify freshness"** |
+
+### Freshness (G10 + the weekly scan)
+
+`RESEARCH_LOG.md` is the append-only audit trail (never deleted — deleting it would
+remove the evidence, not the staleness). Currency is enforced two ways:
+
+- **G10 (per-push, machine-objective):** `check-freshness.py` fails the build once any
+  `checkedAt`/`lastFullScan` in `freshness.json` is older than the TTL. You cannot keep
+  pushing on stale research — you must re-scan and bump the dates first.
+- **Weekly cron (`.github/workflows/freshness.yml`):** runs the checker with `--links`
+  (source link-rot) and, when the cadence lapses or a link dies, opens a *Freshness
+  re-check due* issue. The **relevance judgment of new research is a human/LLM step** the
+  issue triggers — a script verifies recency and link liveness, not what's "important."
 
 G3, G4 and G5 run together in one `vitest run --coverage` (regression, parity, and probe
 assertions live in the suite: `tests/adversarial/wildchat-regression.test.ts`,

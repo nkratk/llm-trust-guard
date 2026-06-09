@@ -32,14 +32,17 @@ same thing:
 | G2 | Lint (non-blocking) | style | quality |
 | G3 | Full unit suite passes (`vitest run`) | behavior intact | "all tests pass" / not breaking |
 | G4 | Coverage thresholds (`vitest.config.ts`) | new code is exercised | "new changes have test cases" |
-| G5 | **Regression**: WildChat block count ≤ `tests/adversarial/baseline.json`; curated benign probe = 0 blocked; adversarial bypass probe = 0 leaked | no FP/FN regression on real traffic | **"not breaking the previous version"** |
+| G5 | **Two-sided regression**: (a) FP — WildChat block count ≤ `baseline.json`, with the fixture pinned by **sha256**; (b) recall — per-category detection ≥ `recall-baseline.json`; (c) curated benign = 0 blocked, adversarial bypass = 0 leaked; (d) **TS↔Python parity** — both ports reproduce `parity-vectors.json` | no FP rise, no recall drop, no port drift | **"not breaking the previous version"** |
 | G6 | **New-tests gate**: `src/` changed since last tag ⇒ `tests/` changed too (override `ALLOW_NO_TESTS=1`) | every change is tested | **"new changes should have test cases"** |
 | G7 | **CHANGELOG gate**: top version == `package.json` version | release is documented | **"consumers know what changed"** |
 | G8 | **Results gate**: `tests/adversarial/RESULTS-v<version>.md` exists | claims are published & reproducible | **"publish the basis for improvement claims"** |
+| G9 | **Patch coverage**: changed `src/` lines since last tag must be ≥80% covered (`diff-cover`) | new code is *actually* tested, not hidden behind old coverage | **"new changes should have test cases"** |
 
-G3, G4 and G5 run together in one `vitest run --coverage` (the regression and probe
+G3, G4 and G5 run together in one `vitest run --coverage` (regression, parity, and probe
 assertions live in the suite: `tests/adversarial/wildchat-regression.test.ts`,
-`tests/benign-context.test.ts`).
+`tests/adversarial/adversarial-benchmark.test.ts` (recall ratchet), `tests/parity.test.ts`,
+`tests/benign-context.test.ts`). G9 runs `diff-cover` on the lcov report. The two-sided
+regression means a change fails if it raises false positives **or** lowers detection.
 
 ## How each recurring concern is now enforced, not remembered
 

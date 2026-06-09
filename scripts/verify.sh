@@ -35,6 +35,19 @@ soft_gate "G2 lint" npm run lint --silent
 # and the coverage thresholds in vitest.config.ts.
 gate "G3+G4+G5 tests + coverage + regression" npx vitest run --coverage
 
+# ── G9: patch coverage — CHANGED src lines (since last tag) must be covered.
+# Enforced in CI; degrades to a skip locally if diff-cover isn't installed.
+patch_cov() {
+  local dc=""
+  if python3 -m diff_cover.diff_cover_tool --version >/dev/null 2>&1; then dc="python3 -m diff_cover.diff_cover_tool"
+  elif command -v diff-cover >/dev/null 2>&1; then dc="diff-cover"
+  else echo "  diff-cover not installed — skipping locally (CI enforces). pip install diff-cover"; return 0; fi
+  local tag; tag=$(git describe --tags --abbrev=0 2>/dev/null) || { echo "  no tag — skipping"; return 0; }
+  [ -f coverage/lcov.info ] || { echo "  coverage/lcov.info missing"; return 1; }
+  $dc coverage/lcov.info --compare-branch "$tag" --fail-under "${PATCH_COV_MIN:-80}"
+}
+gate "G9 patch coverage (changed src lines >=${PATCH_COV_MIN:-80}%)" patch_cov
+
 # ── G6: new code must ship with tests (hard gate; override ALLOW_NO_TESTS=1)
 gate "G6 new code has tests" bash -c '
   tag=$(git describe --tags --abbrev=0 2>/dev/null) || { echo "  no tag yet — skipping G6"; exit 0; }

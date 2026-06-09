@@ -17,6 +17,8 @@
  * - Multilingual attacks
  */
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "fs";
+import * as path from "path";
 import { InputSanitizer } from "../../src/guards/input-sanitizer";
 import { EncodingDetector } from "../../src/guards/encoding-detector";
 import { ToolResultGuard } from "../../src/guards/tool-result-guard";
@@ -300,11 +302,15 @@ describe("Adversarial Benchmark", () => {
       ];
 
       let totalCaught = 0;
+      const byCat: Record<string, number> = {};
       for (const { payload, category } of allAttacks) {
         const sBlocked = !sanitizer.sanitize(payload).allowed;
         const eBlocked = !encoder.detect(payload).allowed;
         const tBlocked = category === "tool_result" ? !toolGuard.validateResult("test", payload).allowed : false;
-        if (sBlocked || eBlocked || tBlocked) totalCaught++;
+        if (sBlocked || eBlocked || tBlocked) {
+          totalCaught++;
+          byCat[category] = (byCat[category] ?? 0) + 1;
+        }
       }
 
       const overallRate = (totalCaught / allAttacks.length) * 100;
@@ -318,8 +324,29 @@ describe("Adversarial Benchmark", () => {
       console.log(`  OVERALL DETECTION RATE: ${overallRate.toFixed(1)}%`);
       console.log("========================================\n");
 
-      // We expect at least 60% overall — regex-only is limited
+      // We expect at least 60% overall — regex-only is limited (loose smoke floor)
       expect(overallRate).toBeGreaterThanOrEqual(60);
+
+      // Two-sided RECALL ratchet: detection must not drop below the locked baseline
+      // (recall-baseline.json). Paired with the WildChat FP baseline (baseline.json),
+      // this fails the build on EITHER a false-positive rise OR a recall drop.
+      const recallBaseline = JSON.parse(
+        readFileSync(
+          path.join(process.cwd(), "tests/adversarial/recall-baseline.json"),
+          "utf-8"
+        )
+      );
+      for (const [cat, floor] of Object.entries(recallBaseline.caught)) {
+        expect(
+          byCat[cat] ?? 0,
+          `Recall regression in "${cat}": ${byCat[cat] ?? 0} caught vs locked ${floor}. ` +
+            `If intentional, update recall-baseline.json with a RESULTS justification.`
+        ).toBeGreaterThanOrEqual(floor as number);
+      }
+      expect(
+        totalCaught,
+        `Overall recall regression: ${totalCaught} caught vs locked ${recallBaseline.overall.caught}.`
+      ).toBeGreaterThanOrEqual(recallBaseline.overall.caught);
     });
   });
 });

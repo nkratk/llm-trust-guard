@@ -1,5 +1,7 @@
 {
   "corpus": "WildChat-1M shard 0 (allenai/WildChat-1M, ODC-BY)",
+  "fixture": "tests/adversarial/fixtures/wildchat-sample10k.jsonl",
+  "sha256": "36ea734a082438e0e2c5d5fbb1f99358380b48ec06075b597c3ca09a5dd5aa0a",
   "sampleSeed": 42,
   "n": 10000,
   "pipelineA": { "blocked": 493, "fpr": 0.0493 },

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
+import { createHash } from "crypto";
 import { InputSanitizer } from "../../src/guards/input-sanitizer";
 import { EncodingDetector } from "../../src/guards/encoding-detector";
 
@@ -44,6 +45,22 @@ describe("WildChat FPR regression gate", () => {
       return;
     }
     const baseline = JSON.parse(fs.readFileSync(BASELINE, "utf-8"));
+
+    // Integrity: the locked block-count is only meaningful against the exact
+    // corpus. Pin the fixture by sha256 so a silent corpus swap can't quietly
+    // invalidate the baseline.
+    if (baseline.sha256) {
+      const hash = createHash("sha256")
+        .update(fs.readFileSync(SAMPLE))
+        .digest("hex");
+      expect(
+        hash,
+        `WildChat fixture sha256 mismatch — the corpus changed under the locked ` +
+          `baseline. Expected ${baseline.sha256}, got ${hash}. Re-lock baseline.json ` +
+          `(with a RESULTS justification) only if the corpus change is intentional.`
+      ).toBe(baseline.sha256);
+    }
+
     const sanitizer = new InputSanitizer({ threshold: 0.3, detectPAP: true });
     const encoder = new EncodingDetector();
 

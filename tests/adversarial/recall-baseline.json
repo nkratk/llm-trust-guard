@@ -1,0 +1,29 @@
+{
+  "note": "Locked attack-detection (recall) counts on the in-repo adversarial benchmark payloads, measured with the Aggregate Report logic (sanitizer || encoder || toolGuard-for-tool_result). This is the RECALL half of the two-sided regression gate; baseline.json is the FP half. A drop below any 'caught' value fails the build. Raise these (never lower) only with a measured RESULTS-v<ver>.md justification.",
+  "lockedAt": "v4.20.2",
+  "caught": {
+    "direct": 10,
+    "indirect": 8,
+    "roleplay": 7,
+    "encoding": 6,
+    "policy": 6,
+    "pap": 6,
+    "splitting": 2,
+    "prefix": 3,
+    "multilingual": 10,
+    "tool_result": 5
+  },
+  "totals": {
+    "direct": 10,
+    "indirect": 8,
+    "roleplay": 7,
+    "encoding": 7,
+    "policy": 6,
+    "pap": 6,
+    "splitting": 3,
+    "prefix": 3,
+    "multilingual": 10,
+    "tool_result": 5
+  },
+  "overall": { "caught": 63, "total": 65 }
+}

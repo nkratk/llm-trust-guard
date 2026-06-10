@@ -17,6 +17,28 @@
  * - Language-specific security rules
  */
 
+/** A single finding from a pluggable code-analysis backend. */
+export interface CodeFinding {
+  name: string;
+  /** Added to the risk score (0-100 scale). */
+  severity: number;
+  kind?: string;
+}
+
+/**
+ * Pluggable code-analysis backend (e.g. an AST parser such as acorn or oxc).
+ *
+ * Default is regex-only (zero dependencies). Provide a backend to add AST-level
+ * detection — sandbox-escape gadget chains, the Function constructor, dynamic
+ * import — that regex cannot reliably see. Findings are ADDITIVE: a backend can
+ * only add detections, never remove them, and a throwing backend never crashes
+ * the guard. See `examples/acorn-code-analyzer.ts` for a reference implementation.
+ *
+ * (The Python package uses stdlib `ast` directly; JS has no stdlib parser, so the
+ * npm package keeps regex zero-dep by default and takes any parser via this seam.)
+ */
+export type CodeAnalyzerBackend = (code: string, language: string) => CodeFinding[];
+
 export interface CodeExecutionGuardConfig {
   /** Allowed programming languages */
   allowedLanguages?: string[];
@@ -40,6 +62,8 @@ export interface CodeExecutionGuardConfig {
   customPatterns?: Array<{ name: string; pattern: RegExp; severity: number }>;
   /** Risk threshold for blocking (0-100) */
   riskThreshold?: number;
+  /** Optional pluggable AST analyzer (acorn/oxc/etc.). Additive on top of regex. */
+  analyzerBackend?: CodeAnalyzerBackend;
 }
 
 export interface CodeAnalysisResult {
@@ -75,7 +99,8 @@ export interface SandboxConfig {
 }
 
 export class CodeExecutionGuard {
-  private config: Required<CodeExecutionGuardConfig>;
+  private config: Required<Omit<CodeExecutionGuardConfig, "analyzerBackend">>;
+  private analyzerBackend?: CodeAnalyzerBackend;
 
   // Language-specific dangerous patterns
   private readonly DANGEROUS_PATTERNS: Record<string, Array<{ name: string; pattern: RegExp; severity: number }>> = {
@@ -190,6 +215,12 @@ export class CodeExecutionGuard {
       customPatterns: config.customPatterns ?? [],
       riskThreshold: config.riskThreshold ?? 50,
     };
+    this.analyzerBackend = config.analyzerBackend;
+  }
+
+  /** Register/replace the pluggable AST analyzer backend at runtime. */
+  setAnalyzerBackend(backend: CodeAnalyzerBackend): void {
+    this.analyzerBackend = backend;
   }
 
   /**
@@ -276,6 +307,24 @@ export class CodeExecutionGuard {
         if (name.includes("eval") || name.includes("exec") || name.includes("compile")) {
           dangerousFunctions.push(name);
         }
+      }
+    }
+
+    // Pluggable analyzer backend (optional AST analysis — acorn/oxc/etc.).
+    // Additive: only adds findings the regex missed. A throwing backend must
+    // never crash the guard — fall back to the regex result.
+    if (this.analyzerBackend) {
+      try {
+        for (const finding of this.analyzerBackend(code, normalizedLang)) {
+          const v = `analyzer_${finding.name}`;
+          if (!violations.includes(v)) {
+            violations.push(v);
+            riskScore += finding.severity;
+            dangerousFunctions.push(finding.name);
+          }
+        }
+      } catch {
+        // ignore backend errors
       }
     }
 

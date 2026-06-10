@@ -5,6 +5,28 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.21.0] - 2026-06-09
+
+### Added — Pluggable `CodeAnalyzerBackend` (optional AST analysis, zero-dep default)
+
+`CodeExecutionGuard` now accepts an optional `analyzerBackend` — a pluggable
+code-analysis seam (mirroring the existing `DetectionClassifier`). The default stays
+**regex-only / zero-dependency**; provide a backend to add AST-level detection of JS
+sandbox-escape gadgets that regex cannot reliably see.
+
+- New exports: `CodeFinding`, `CodeAnalyzerBackend`; new config field `analyzerBackend`
+  and `CodeExecutionGuard.setAnalyzerBackend()`. Findings are **additive** (only add
+  detections); a throwing backend never crashes the guard.
+- Reference implementation: `examples/acorn-code-analyzer.ts` (acorn). Measured —
+  three JS escape gadgets (`this.constructor.constructor('return process')()`,
+  `[].constructor.constructor(...)()`, `Function('return process')()`) go **3/3 missed
+  by regex → 3/3 blocked** with the backend; benign JS unaffected.
+- 9 new tests (6 zero-dep wiring + 3 acorn). `acorn` added as a **devDependency only** —
+  the published package keeps **zero production dependencies**.
+- Why a seam and not a bundled parser: JS has no stdlib parser, so bundling acorn/oxc
+  would break the zero-dep guarantee. The Python package uses stdlib `ast` directly
+  (v0.10.3). See RESEARCH_LOG.md. Detection only — still no runtime sandbox.
+
 ## [4.20.2] - 2026-06-06
 
 ### Added — Benign-context suppression (false-positive reduction)

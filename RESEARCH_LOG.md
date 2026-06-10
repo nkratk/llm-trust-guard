@@ -7,6 +7,28 @@ instead of memory. Newest first.
 
 ---
 
+## 2026-06-09 — v4.21.0 — pluggable AST code-analysis (CodeAnalyzerBackend)
+
+**As-of date for the search:** 2026-06 (June 2026).
+
+**Questions searched** — is regex the current best practice for code static analysis, or
+AST? Best maintained JS/TS AST parser as of 2026 for a zero-dependency library?
+
+**Sources**
+- JS AST parsers 2026 (acorn vs babel vs espree): https://www.pkgpulse.com/guides/acorn-vs-babel-parser-vs-espree-javascript-ast-parsers-2026
+- Oxc parser (Rust, fastest/most-conformant): https://oxc.rs/docs/learn/architecture/parser
+- Oxc vs SWC 2026: https://www.pkgpulse.com/guides/oxc-vs-swc-rust-javascript-toolchain-2026
+
+**Conclusions**
+- Regex code analysis is **not** 2026 state of the art — AST is. JS has **no stdlib
+  parser**: acorn (~20M weekly, ~100KB, ESTree) is the minimal choice, oxc (Rust, modular
+  `oxc_parser`) the fast one; both actively maintained (Shopify/Airbnb on Oxlint).
+- Bundling any parser would break the npm zero-dependency guarantee, so we shipped a
+  **pluggable `CodeAnalyzerBackend` seam** (default regex/zero-dep) + an acorn reference in
+  `examples/`. Measured 3/3 JS escape gadgets missed by regex → blocked with the backend
+  (RESULTS-v4.21.0.md). The Python package uses stdlib `ast` directly (v0.10.3).
+- Still NOT adding a runtime sandbox — that stays a host concern (gVisor/Firecracker/WASM).
+
 ## 2026-06-08 — v4.20.2 — benign-context suppression
 
 **As-of date for the search:** 2026-06 (June 2026).

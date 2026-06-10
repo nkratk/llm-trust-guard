@@ -39,7 +39,7 @@ export { EncodingDetector, EncodingDetectorConfig } from "./guards/encoding-dete
 export { MultiModalGuard, MultiModalGuardConfig, MultiModalContent, MultiModalGuardResult } from "./guards/multimodal-guard";
 export { MemoryGuard, MemoryGuardConfig, MemoryItem, MemoryGuardResult } from "./guards/memory-guard";
 export { RAGGuard, RAGGuardConfig, RAGDocument, RAGGuardResult, EmbeddingAttackResult } from "./guards/rag-guard";
-export { CodeExecutionGuard, CodeExecutionGuardConfig, CodeAnalysisResult, SandboxConfig } from "./guards/code-execution-guard";
+export { CodeExecutionGuard, CodeExecutionGuardConfig, CodeAnalysisResult, SandboxConfig, CodeFinding, CodeAnalyzerBackend } from "./guards/code-execution-guard";
 export { AgentCommunicationGuard, AgentCommunicationGuardConfig, AgentIdentity, AgentMessage, MessageValidationResult } from "./guards/agent-communication-guard";
 export { CircuitBreaker, CircuitBreakerConfig, CircuitState, CircuitStats, CircuitBreakerResult } from "./guards/circuit-breaker";
 export { DriftDetector, DriftDetectorConfig, BehaviorSample, BaselineProfile, DriftAnalysis, DriftDetectorResult } from "./guards/drift-detector";

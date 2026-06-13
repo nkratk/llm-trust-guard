@@ -3,7 +3,11 @@ const path = require('path');
 
 async function buildESM() {
   await esbuild.build({
-    entryPoints: [path.join(__dirname, '..', 'dist', 'index.js')],
+    // Build the ESM bundle from the TS SOURCE, not the compiled CJS
+    // (dist/index.js): esbuild cannot recover named exports from tsc's CJS
+    // getter output, which left .mjs default-only and broke
+    // `import { X } from 'llm-trust-guard'`. Source entry preserves `export {}`.
+    entryPoints: [path.join(__dirname, '..', 'src', 'index.ts')],
     bundle: true,
     format: 'esm',
     platform: 'node',

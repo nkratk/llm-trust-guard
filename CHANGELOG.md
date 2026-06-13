@@ -5,6 +5,24 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.21.1] - 2026-06-12
+
+### Fixed — ESM named exports (`dist/index.mjs`)
+
+`import { InputSanitizer } from "llm-trust-guard"` previously failed for **every**
+named export — `dist/index.mjs` was default-only. Cause: `build-esm.js` bundled the
+**compiled CJS** (`dist/index.js`), and esbuild cannot recover named exports from
+tsc's CJS getter output (latent since the initial commit; not a size tradeoff —
+`minify` is orthogonal). CommonJS `require()` was always fine, which is why it went
+unnoticed.
+
+- **Fix:** build the `.mjs` from the TS **source** (`src/index.ts`) so `export { … }`
+  statements survive. `dist/index.mjs` now has a named-export block (0 → 1) and no
+  default-only export.
+- Regression guard added: `tests/esm-build.test.ts`.
+- No API or behavior change; CommonJS unaffected. Verified by `npm pack` → ESM consumer
+  smoke (named `import { … }` now resolves) — see `tests/adversarial/RESULTS-v4.21.1.md`.
+
 ## [4.21.0] - 2026-06-09
 
 ### Added — Pluggable `CodeAnalyzerBackend` (optional AST analysis, zero-dep default)

@@ -193,6 +193,28 @@ const output = guard.filterOutput(llmResponse, session.role);
 |-----------|---------|
 | DetectionClassifier | Plug in any ML backend (sync or async) alongside regex guards |
 | createRegexClassifier() | Built-in regex classifier as a DetectionClassifier callback |
+| CodeAnalyzerBackend | Plug an AST parser (e.g. acorn/oxc) into `CodeExecutionGuard` — catches JS sandbox-escape gadgets regex misses, while the default stays zero-dependency |
+
+`CodeExecutionGuard` is regex-only by default (zero dependencies). For AST-level
+detection of gadget chains like `this.constructor.constructor('return process')()`
+or the `Function` constructor, plug in a parser via `analyzerBackend` (findings are
+additive; a throwing backend never crashes the guard):
+
+```ts
+import { CodeExecutionGuard, type CodeAnalyzerBackend } from 'llm-trust-guard';
+import { parse } from 'acorn'; // your dependency, not the library's
+
+const acornBackend: CodeAnalyzerBackend = (code, language) => {
+  if (language !== 'javascript') return [];
+  // walk the AST, return [{ name, severity }] for dangerous nodes
+  return findGadgets(parse(code, { ecmaVersion: 'latest', sourceType: 'module' }));
+};
+
+const guard = new CodeExecutionGuard({ analyzerBackend: acornBackend });
+```
+
+See `examples/acorn-code-analyzer.ts` for a complete reference. The Python package
+ships this analysis built in (stdlib `ast`, no backend needed).
 
 ## OWASP Coverage
 

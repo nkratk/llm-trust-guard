@@ -16,10 +16,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
@@ -49,10 +49,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20.x'
           cache: 'npm'
@@ -68,10 +68,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20.x'
           cache: 'npm'
@@ -88,19 +88,19 @@ jobs:
 
     steps:
       - name: Checkout code (with LFS fixtures + tags)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           lfs: true        # resolve the WildChat fixture for the FP regression gate
           fetch-depth: 0   # tags present so the G6 "new code has tests" gate runs
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20.x'
           cache: 'npm'
 
       - name: Set up Python (for diff-cover patch coverage)
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 

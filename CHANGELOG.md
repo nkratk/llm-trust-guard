@@ -5,6 +5,21 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.21.3] - 2026-06-13
+
+### Docs / CI
+
+- **README**: the `CodeAnalyzerBackend` example is now complete and copy-pasteable
+  (full acorn walker that blocks `constructor.constructor` / `Function` gadgets), with
+  a GitHub link to the full reference. It previously called a placeholder function and
+  pointed at `examples/…` which isn't shipped in the npm package — so consumers had no
+  runnable backend for the headline new feature.
+- **CI**: bumped GitHub Actions off the deprecated Node 20 runtime (`checkout@v6`,
+  `setup-node@v6`, `setup-python@v6`, `gh-release@v3`, `github-script@v8`) ahead of the
+  2026-06-16 forced migration.
+
+No code/behavior change.
+
 ## [4.21.2] - 2026-06-12
 
 ### Docs — document `CodeAnalyzerBackend`; add README-sync gate (G11)

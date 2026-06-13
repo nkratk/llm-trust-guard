@@ -201,20 +201,46 @@ or the `Function` constructor, plug in a parser via `analyzerBackend` (findings 
 additive; a throwing backend never crashes the guard):
 
 ```ts
-import { CodeExecutionGuard, type CodeAnalyzerBackend } from 'llm-trust-guard';
+import { CodeExecutionGuard, type CodeAnalyzerBackend, type CodeFinding } from 'llm-trust-guard';
 import { parse } from 'acorn'; // your dependency, not the library's
+
+function walk(node: any, visit: (n: any) => void) {
+  if (!node || typeof node !== 'object') return;
+  if (typeof node.type === 'string') visit(node);
+  for (const k of Object.keys(node)) {
+    const c = node[k];
+    if (Array.isArray(c)) c.forEach((x) => walk(x, visit));
+    else if (c && typeof c === 'object') walk(c, visit);
+  }
+}
 
 const acornBackend: CodeAnalyzerBackend = (code, language) => {
   if (language !== 'javascript') return [];
-  // walk the AST, return [{ name, severity }] for dangerous nodes
-  return findGadgets(parse(code, { ecmaVersion: 'latest', sourceType: 'module' }));
+  let ast: any;
+  try { ast = parse(code, { ecmaVersion: 'latest', sourceType: 'module' }); }
+  catch { return []; } // unparseable — the guard's regex pass still ran
+  const findings: CodeFinding[] = [];
+  walk(ast, (n) => {
+    // X.constructor.constructor(...) — classic sandbox escape
+    if (n.type === 'CallExpression' && n.callee?.property?.name === 'constructor' &&
+        n.callee.object?.property?.name === 'constructor') {
+      findings.push({ name: 'constructor_escape', severity: 60 });
+    }
+    // Function('...') as a call (no `new`)
+    if (n.type === 'CallExpression' && n.callee?.type === 'Identifier' && n.callee.name === 'Function') {
+      findings.push({ name: 'function_constructor', severity: 50 });
+    }
+  });
+  return findings;
 };
 
 const guard = new CodeExecutionGuard({ analyzerBackend: acornBackend });
+guard.analyze("this.constructor.constructor('return process')()", 'javascript').allowed; // false
 ```
 
-See `examples/acorn-code-analyzer.ts` for a complete reference. The Python package
-ships this analysis built in (stdlib `ast`, no backend needed).
+Full reference (also handles `__proto__` and dynamic `import()`):
+[`examples/acorn-code-analyzer.ts`](https://github.com/nkratk/llm-trust-guard/blob/main/examples/acorn-code-analyzer.ts).
+The Python package ships this analysis built in (stdlib `ast`, no backend needed).
 
 ## OWASP Coverage
 

@@ -5,6 +5,49 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.22.0] - 2026-06-29
+
+### Added — `OutputGuard` (OWASP LLM05:2025 Improper Output Handling)
+
+New guard (L35) that scans **model/tool output** for payloads dangerous to a
+downstream sink, complementing `OutputFilter` (which only handles PII/secret
+egress). Detects:
+
+- **HTML/DOM XSS** — `<script>`, `<iframe>`, `javascript:` URIs, inline event
+  handlers, `<img onerror>`, `document.cookie/location/write`, `data:text/html`.
+- **SQL injection** — `UNION SELECT`, `' OR 1=1` tautologies, `;DROP TABLE`,
+  `;DELETE FROM`, `xp_cmdshell`.
+- **OS command injection** — `$(...)`/backtick substitution, `;rm -rf`,
+  `curl|wget … | bash`, pipe-to-shell, chained destructive commands.
+- **Markdown image exfiltration** — auto-fetched `![](https://host/?data=…)`
+  links (and off-allowlist links when `allowedDomains` is set).
+- **Spreadsheet/CSV formula injection** — cells starting with `= + - @` carrying
+  `HYPERLINK`/`IMPORT*`/`WEBSERVICE`/`DDE`/`cmd|`.
+
+Critical payloads block; single high-severity signals are reported and require
+corroboration to auto-block (consistent with the library's risk-threshold
+convention). Optional `sanitize: true` returns a neutralized copy. Zero new
+dependencies. 21 tests. New exports: `OutputGuard`, `OutputGuardConfig`,
+`OutputGuardResult`, `OutputThreat`, `OutputSink`.
+
+### Added — MCP registration-time schema-poisoning & line-jumping detection
+
+`MCPSecurityGuard.validateServerRegistration()` now inspects tools beyond the
+`description` field:
+
+- **Full-schema poisoning (FSP)** — walks the entire parameter schema (key
+  names, `enum`/`default`/`const` values, nested objects) for smuggled
+  instructions or suspicious keys like `content_from_reading_ssh_id_rsa`.
+  (CyberArk "Poison Everywhere", 2025.)
+- **Line-jumping** — flags descriptions that inject instructions at `tools/list`
+  time, before any invocation or approval: pre-invocation directives, secrecy
+  phrases, and fake-compliance framing. (Trail of Bits, 2025.)
+
+Both default on; toggle via `detectSchemaPoisoning` / `detectLineJumping`.
+New violation prefixes: `schema_poisoning:` and `line_jumping:`. 5 tests.
+
+Mirrored 1:1 in the Python package (`llm-trust-guard` 0.11.0).
+
 ## [4.21.3] - 2026-06-13
 
 ### Docs / CI

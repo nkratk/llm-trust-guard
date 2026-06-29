@@ -70,6 +70,9 @@ export { SpawnPolicyGuard, SpawnPolicyGuardConfig, SpawnRequest, SpawnPolicyResu
 export { DelegationScopeGuard, DelegationScopeGuardConfig, DelegationRequest, DelegationScopeResult } from "./guards/delegation-scope-guard";
 export { TrustTransitivityGuard, TrustTransitivityGuardConfig, TransitivityMode, AgentTrustEntry, TrustChainLink, TrustTransitivityResult } from "./guards/trust-transitivity-guard";
 
+// Export v4.22.0 guard — LLM05:2025 Improper Output Handling
+export { OutputGuard, OutputGuardConfig, OutputGuardResult, OutputThreat, OutputSink } from "./guards/output-guard";
+
 // Export detection backend
 export { DetectionClassifier, DetectionResult, DetectionThreat, DetectionContext, createRegexClassifier, mergeDetectionResults } from "./detection-backend";
 

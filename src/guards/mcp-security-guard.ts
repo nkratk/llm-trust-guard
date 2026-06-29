@@ -68,6 +68,18 @@ export interface MCPSecurityGuardConfig {
   strictMode?: boolean;
   /** Custom command injection patterns */
   customInjectionPatterns?: RegExp[];
+  /**
+   * Detect full-schema poisoning (FSP): instructions hidden in parameter names,
+   * enum/default values, required[] and other non-description schema fields,
+   * scanned at registration time. (CyberArk "Poison Everywhere", 2025.) Default: true.
+   */
+  detectSchemaPoisoning?: boolean;
+  /**
+   * Detect line-jumping: a tool description that injects instructions into
+   * context at tools/list time — pre-invocation directives, secrecy phrases,
+   * fake-compliance framing. (Trail of Bits, 2025.) Default: true.
+   */
+  detectLineJumping?: boolean;
 }
 
 export interface MCPServerIdentity {
@@ -280,6 +292,8 @@ export class MCPSecurityGuard {
       minServerReputation: config.minServerReputation ?? 30,
       strictMode: config.strictMode ?? false,
       customInjectionPatterns: config.customInjectionPatterns ?? [],
+      detectSchemaPoisoning: config.detectSchemaPoisoning ?? true,
+      detectLineJumping: config.detectLineJumping ?? true,
     };
 
     // Pre-register trusted servers
@@ -369,6 +383,26 @@ export class MCPSecurityGuard {
       if (descInjection.detected) {
         violations.push(`injection_in_tool_description: ${tool.name}`);
         reputationScore -= 20;
+      }
+
+      // Line-jumping: description injects instructions at tools/list time,
+      // before any invocation or human approval (Trail of Bits, 2025).
+      if (this.config.detectLineJumping) {
+        const lineJump = this.detectLineJumping(tool.description);
+        if (lineJump.length > 0) {
+          violations.push(`line_jumping: ${tool.name} (${lineJump.join(", ")})`);
+          reputationScore -= 30;
+        }
+      }
+
+      // Full-schema poisoning: instructions hidden in parameter names / enum /
+      // default / required fields rather than the description (CyberArk, 2025).
+      if (this.config.detectSchemaPoisoning) {
+        const fsp = this.detectSchemaPoisoning(tool.parameters);
+        if (fsp.length > 0) {
+          violations.push(`schema_poisoning: ${tool.name} (${fsp.join(", ")})`);
+          reputationScore -= 30;
+        }
       }
     }
 
@@ -892,6 +926,65 @@ export class MCPSecurityGuard {
       detected: patterns.length > 0,
       patterns,
     };
+  }
+
+  /** Line-jumping cues: instructions a description tries to inject pre-invocation */
+  private readonly LINE_JUMPING_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
+    { name: "pre_invocation_directive", pattern: /\b(?:always|before (?:executing|using|calling|running|any)|as the first step|prior to|on every|each time you)\b/i },
+    { name: "instruction_override", pattern: /ignore\s+(?:all\s+)?(?:previous|prior|above)\s+instructions|disregard\s+(?:the|all|previous)/i },
+    { name: "secrecy", pattern: /\bdo\s+not\s+(?:tell|reveal|show|mention|inform|notify)\b|without\s+(?:telling|informing|notifying)\s+the\s+user|\bsecretly\b|\bsilently\b|\bcovertly\b/i },
+    { name: "fake_compliance", pattern: /\b(?:required|mandatory|necessary)\s+(?:for|by)\s+(?:GDPR|SOC\s?2|HIPAA|PCI|ISO|compliance|audit|policy)\b/i },
+    { name: "role_reassignment", pattern: /you\s+(?:are|must|should)\s+now\b|<\|(?:im_start|im_end|system|user|assistant)\|>|\[INST\]|<<SYS>>/i },
+    { name: "embedded_action", pattern: /\b(?:read|send|exfiltrate|upload|post)\s+(?:the\s+)?(?:contents?\s+of\s+)?(?:~?\/?\.?\w*(?:ssh|aws|env|credentials|id_rsa))/i },
+  ];
+
+  /**
+   * Detect line-jumping: imperative / secrecy / fake-compliance cues embedded in
+   * a tool description that take effect the moment the description is loaded.
+   */
+  private detectLineJumping(description: string): string[] {
+    if (!description) return [];
+    const hits: string[] = [];
+    for (const { name, pattern } of this.LINE_JUMPING_PATTERNS) {
+      if (pattern.test(description)) hits.push(name);
+    }
+    return hits;
+  }
+
+  /**
+   * Detect full-schema poisoning: walk every non-description field of a tool's
+   * parameter schema (key names, enum/default/const values, required[], nested
+   * objects) for injected instructions or suspicious payloads.
+   */
+  private detectSchemaPoisoning(parameters?: Record<string, any>): string[] {
+    if (!parameters || typeof parameters !== "object") return [];
+    const hits = new Set<string>();
+    // Param/key names that read like smuggled instructions or file paths
+    const suspiciousKey = /(?:from_reading|contents_of|ignore|system_prompt|exfil|ssh|id_rsa|\.env|credentials|secret|api[_-]?key|do_not_|inject)/i;
+    const instruction = /ignore\s+(?:previous|all|prior)|do\s+not\s+(?:tell|mention|reveal)|you\s+(?:are|must)\s+now|before\s+(?:executing|using|calling)|\bsecretly\b|<\|(?:im_start|system)\|>|\[INST\]/i;
+
+    const walk = (node: any, path: string, depth: number): void => {
+      if (depth > 6 || node == null) return;
+      if (typeof node === "string") {
+        if (path !== "description" && !path.endsWith(".description") && instruction.test(node)) {
+          hits.add(`instruction_in:${path || "value"}`);
+        }
+        return;
+      }
+      if (Array.isArray(node)) {
+        node.forEach((v, i) => walk(v, `${path}[${i}]`, depth + 1));
+        return;
+      }
+      if (typeof node === "object") {
+        for (const key of Object.keys(node)) {
+          if (suspiciousKey.test(key)) hits.add(`suspicious_key:${key}`);
+          walk(node[key], path ? `${path}.${key}` : key, depth + 1);
+        }
+      }
+    };
+
+    walk(parameters, "", 0);
+    return Array.from(hits);
   }
 
   private scanParameters(parameters: Record<string, any>): {

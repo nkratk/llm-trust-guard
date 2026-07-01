@@ -224,6 +224,11 @@ export class EncodingDetector {
         });
         obfuscationScore += 3;
         violations.push("UNICODE_OBFUSCATION_DETECTED");
+        // Sneaky Bits binary-encoding: 3+ consecutive invisible operators
+        if (unicodeResult.types.includes("sneaky_bits_encoding")) {
+          obfuscationScore += 2;
+          violations.push("SNEAKY_BITS_ENCODING_DETECTED");
+        }
 
         // Check both normalizations for threats:
         // stripped (intra-word ZWS: "igno\u200Bre" → "ignore")
@@ -557,6 +562,29 @@ export class EncodingDetector {
       types.push("tag_characters");
     }
 
+    // Check for invisible operators (Sneaky Bits attack — NVIDIA 2025, Embrace the Red)
+    // U+2062 INVISIBLE TIMES / U+2064 INVISIBLE SEPARATOR encode binary 0/1
+    const invisibleOps = /[⁢⁤]/g;
+    const invisibleOpMatches = input.match(invisibleOps) || [];
+    if (invisibleOpMatches.length > 0) {
+      count += invisibleOpMatches.length;
+      types.push("invisible_operators");
+      // 3+ consecutive = encoded text stream, flag as distinct sub-type
+      if (/[⁢⁤]{3,}/.test(input)) {
+        types.push("sneaky_bits_encoding");
+      }
+    }
+
+    // Check for Unicode variation selectors (U+FE00-U+FE0F — used in Sneaky Bits binary encoding)
+    // Require 2+ consecutive to avoid flagging single U+FE0F which is normal in emoji text (e.g. ❤️)
+    const variationSelectorSeqs = /[︀-️]{2,}/g;
+    const variationSelectorMatches = input.match(variationSelectorSeqs) || [];
+    if (variationSelectorMatches.length > 0) {
+      const vsCount = variationSelectorMatches.reduce((s, m) => s + m.length, 0);
+      count += vsCount;
+      types.push("variation_selectors");
+    }
+
     let normalized: string | undefined;
     let normalizedSpaced: string | undefined;
     if (count > 0) {
@@ -586,7 +614,9 @@ export class EncodingDetector {
           String.fromCodePoint(parseInt(hex, 16))
         )
         .replace(/[\u202A\u202B\u202C\u202D\u202E\u2066\u2067\u2068\u2069]/g, "")
-        .replace(/[\u{E0000}-\u{E007F}]/gu, "");
+        .replace(/[\u{E0000}-\u{E007F}]/gu, "")
+        .replace(/[\u2062\u2064]/g, "")
+        .replace(/[\uFE00-\uFE0F]{2,}/g, "");
 
       // Primary: strip ZWS (catches intra-word: "igno\u200Bre" → "ignore")
       normalized = base

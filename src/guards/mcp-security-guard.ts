@@ -80,6 +80,13 @@ export interface MCPSecurityGuardConfig {
    * fake-compliance framing. (Trail of Bits, 2025.) Default: true.
    */
   detectLineJumping?: boolean;
+  /**
+   * Scan the entire server registration object for exposed credential values:
+   * AWS keys, GitHub PATs, Bearer tokens, Stripe keys, Slack tokens, Google API
+   * keys. Addresses MCP credential aggregation risk (Astrix Security, 2025:
+   * 48% of MCP servers store credentials in plaintext). Default: true.
+   */
+  detectCredentialExposure?: boolean;
 }
 
 export interface MCPServerIdentity {
@@ -294,6 +301,7 @@ export class MCPSecurityGuard {
       customInjectionPatterns: config.customInjectionPatterns ?? [],
       detectSchemaPoisoning: config.detectSchemaPoisoning ?? true,
       detectLineJumping: config.detectLineJumping ?? true,
+      detectCredentialExposure: config.detectCredentialExposure ?? true,
     };
 
     // Pre-register trusted servers
@@ -403,6 +411,17 @@ export class MCPSecurityGuard {
           violations.push(`schema_poisoning: ${tool.name} (${fsp.join(", ")})`);
           reputationScore -= 30;
         }
+      }
+    }
+
+    // Credential exposure: scan the full registration object for leaked credential
+    // values — AWS keys, GitHub PATs, bearer tokens, etc. (Astrix Security, 2025:
+    // 48% of MCP servers store credentials in plaintext).
+    if (this.config.detectCredentialExposure) {
+      const credHits = this.detectCredentialExposure(registration);
+      if (credHits.length > 0) {
+        violations.push(`credential_exposed: ${credHits.join(", ")}`);
+        reputationScore -= 40;
       }
     }
 
@@ -984,6 +1003,40 @@ export class MCPSecurityGuard {
     };
 
     walk(parameters, "", 0);
+    return Array.from(hits);
+  }
+
+  private detectCredentialExposure(obj: unknown): string[] {
+    const hits = new Set<string>();
+    // Named credential patterns — ordered from most specific to broadest
+    const CREDENTIAL_PATTERNS: Array<[RegExp, string]> = [
+      [/\b(AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}\b/, "aws_access_key"],
+      [/(?:^|[^a-z0-9])ghp_[A-Za-z0-9]{36,40}(?:[^a-z0-9]|$)/, "github_pat"],
+      [/(?:^|[^a-z0-9])ghs_[A-Za-z0-9]{36,40}(?:[^a-z0-9]|$)/, "github_server_token"],
+      [/(?:^|[^a-z0-9])gho_[A-Za-z0-9]{36,40}(?:[^a-z0-9]|$)/, "github_oauth_token"],
+      [/sk_live_[A-Za-z0-9]{24,}/, "stripe_secret_key"],
+      [/xox[bporas]-[A-Za-z0-9\-]+/, "slack_token"],
+      [/\bAIza[A-Za-z0-9\-_]{35}\b/, "google_api_key"],
+      [/Bearer\s+[A-Za-z0-9\-._~+/]{20,}=*/, "bearer_token"],
+      [/\bey[A-Za-z0-9\-_]{10,}\.[A-Za-z0-9\-_]{10,}\.[A-Za-z0-9\-_.+/]+=*/, "jwt_token"],
+    ];
+
+    const scanValue = (val: string): void => {
+      for (const [pattern, label] of CREDENTIAL_PATTERNS) {
+        if (pattern.test(val)) hits.add(label);
+      }
+    };
+
+    const walk = (node: unknown, depth: number): void => {
+      if (depth > 8 || node == null) return;
+      if (typeof node === "string") { scanValue(node); return; }
+      if (Array.isArray(node)) { node.forEach((v) => walk(v, depth + 1)); return; }
+      if (typeof node === "object") {
+        for (const val of Object.values(node as Record<string, unknown>)) walk(val, depth + 1);
+      }
+    };
+
+    walk(obj, 0);
     return Array.from(hits);
   }
 

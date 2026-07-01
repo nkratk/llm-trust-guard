@@ -348,4 +348,100 @@ describe("MCPSecurityGuard", () => {
       expect(result.violations.some((v) => v.startsWith("line_jumping"))).toBe(false);
     });
   });
+
+  describe("Credential exposure detection in server registration", () => {
+    it("should detect AWS access key in tool parameter default", () => {
+      const guard = new MCPSecurityGuard({ strictMode: true });
+      const registration: MCPServerRegistration = {
+        server: { serverId: "aws-leaker", name: "AWS Leaker" },
+        tools: [{
+          name: "list_buckets",
+          description: "Lists S3 buckets",
+          serverId: "aws-leaker",
+          parameters: { aws_key: { type: "string", default: "AKIAIOSFODNN7EXAMPLE" } },
+        }],
+        timestamp: Date.now(),
+      };
+      const result = guard.validateServerRegistration(registration);
+      expect(result.violations.some((v) => v.includes("credential_exposed"))).toBe(true);
+      expect(result.violations.some((v) => v.includes("aws_access_key"))).toBe(true);
+    });
+
+    it("should detect GitHub PAT in server metadata", () => {
+      const guard = new MCPSecurityGuard({ strictMode: true });
+      const registration: MCPServerRegistration = {
+        server: { serverId: "gh-leaker", name: "GitHub Leaker", metadata: { token: "ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ1234567890" } },
+        tools: [{ name: "repo_read", description: "Read repo", serverId: "gh-leaker", parameters: {} }],
+        timestamp: Date.now(),
+      };
+      const result = guard.validateServerRegistration(registration);
+      expect(result.violations.some((v) => v.includes("credential_exposed"))).toBe(true);
+      expect(result.violations.some((v) => v.includes("github_pat"))).toBe(true);
+    });
+
+    it("should detect Bearer token in a tool parameter value", () => {
+      const guard = new MCPSecurityGuard({ strictMode: true });
+      const registration: MCPServerRegistration = {
+        server: { serverId: "bearer-leaker", name: "Bearer Leaker" },
+        tools: [{
+          name: "call_api",
+          description: "Calls external API",
+          serverId: "bearer-leaker",
+          parameters: { auth: { type: "string", default: "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyMTIzIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c" } },
+        }],
+        timestamp: Date.now(),
+      };
+      const result = guard.validateServerRegistration(registration);
+      expect(result.violations.some((v) => v.includes("credential_exposed"))).toBe(true);
+    });
+
+    it("should detect Slack token in registration config", () => {
+      const guard = new MCPSecurityGuard({ strictMode: true });
+      const registration: MCPServerRegistration = {
+        server: { serverId: "slack-leaker", name: "Slack Leaker" },
+        tools: [{
+          name: "post_message",
+          description: "Post to Slack",
+          serverId: "slack-leaker",
+          parameters: { token: { type: "string", default: "xoxb-FAKE-TOKEN-FOR-UNIT-TEST-NOT-REAL" } },
+        }],
+        timestamp: Date.now(),
+      };
+      const result = guard.validateServerRegistration(registration);
+      expect(result.violations.some((v) => v.includes("credential_exposed"))).toBe(true);
+      expect(result.violations.some((v) => v.includes("slack_token"))).toBe(true);
+    });
+
+    it("should not flag clean registration with no credentials", () => {
+      const guard = new MCPSecurityGuard({ strictMode: false });
+      const registration: MCPServerRegistration = {
+        server: { serverId: "clean-server", name: "Clean Server" },
+        tools: [{
+          name: "search",
+          description: "Search documents",
+          serverId: "clean-server",
+          parameters: { query: { type: "string", description: "Search query" } },
+        }],
+        timestamp: Date.now(),
+      };
+      const result = guard.validateServerRegistration(registration);
+      expect(result.violations.some((v) => v.includes("credential_exposed"))).toBe(false);
+    });
+
+    it("should respect detectCredentialExposure: false", () => {
+      const guard = new MCPSecurityGuard({ strictMode: true, detectCredentialExposure: false });
+      const registration: MCPServerRegistration = {
+        server: { serverId: "cred-off", name: "Cred Off" },
+        tools: [{
+          name: "t",
+          description: "Tool",
+          serverId: "cred-off",
+          parameters: { key: { default: "AKIAIOSFODNN7EXAMPLE" } },
+        }],
+        timestamp: Date.now(),
+      };
+      const result = guard.validateServerRegistration(registration);
+      expect(result.violations.some((v) => v.includes("credential_exposed"))).toBe(false);
+    });
+  });
 });

@@ -5,6 +5,38 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.23.0] - 2026-06-30
+
+### Added — Sneaky Bits encoding detection in `EncodingDetector`
+
+New detection sub-types in the Unicode obfuscation layer:
+
+- **Invisible operators** (U+2062 INVISIBLE TIMES / U+2064 INVISIBLE SEPARATOR) —
+  used by the "Sneaky Bits" attack (NVIDIA 2025, Embrace the Red) to binary-encode
+  hidden instructions invisible to users but readable by LLMs.
+- **Variation selectors** (U+FE00-U+FE0F, 2+ consecutive) — used in Sneaky Bits
+  binary-encoding to encode 0/1 bits. Single U+FE0F (normal in emoji) is NOT flagged.
+- New top-level violation `SNEAKY_BITS_ENCODING_DETECTED` when 3+ consecutive
+  invisible operators are present (binary-encoded text stream).
+- Real-world CVE: CVE-2025-32711 "EchoLeak" (Microsoft 365 Copilot, May 2025).
+
+### Added — Credential exposure scanning in `MCPSecurityGuard`
+
+`validateServerRegistration()` now scans the **entire registration object**
+(server config, tool parameters, metadata, nested values) for exposed credential
+values — addressing the finding that 48% of MCP servers store credentials in
+plaintext (Astrix Security State of MCP 2025 report):
+
+- AWS access keys (`AKIA…`)
+- GitHub PATs (`ghp_`, `ghs_`, `gho_`)
+- Bearer / JWT tokens
+- Stripe secret keys (`sk_live_…`)
+- Slack tokens (`xoxb-…`, `xoxp-…`)
+- Google API keys (`AIza…`)
+
+New violation prefix: `credential_exposed: <type>`. Deducts 40 reputation points.
+Toggle via `detectCredentialExposure` (default: `true`).
+
 ## [4.22.0] - 2026-06-29
 
 ### Added — `OutputGuard` (OWASP LLM05:2025 Improper Output Handling)

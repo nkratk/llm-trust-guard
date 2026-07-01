@@ -199,6 +199,35 @@ describe("EncodingDetector", () => {
     });
   });
 
+  describe("Sneaky Bits / Invisible Operator Detection", () => {
+    it("should detect invisible operators (U+2062 / U+2064) — Sneaky Bits attack", () => {
+      // U+2062 = INVISIBLE TIMES, U+2064 = INVISIBLE SEPARATOR — used to binary-encode text
+      // Characters alone don't block (no threat in decoded text), but violation is reported.
+      const sneaky = "normal text⁢⁤⁢⁤⁢ hidden payload";
+      const result = detector.detect(sneaky);
+      expect(result.violations).toContain("UNICODE_OBFUSCATION_DETECTED");
+    });
+
+    it("should emit SNEAKY_BITS_ENCODING_DETECTED when 3+ consecutive invisible operators are present", () => {
+      const encoded = "⁢⁤⁢⁤⁤⁢"; // 6 invisible ops = binary-encoded text
+      const result = detector.detect(encoded);
+      expect(result.violations).toContain("SNEAKY_BITS_ENCODING_DETECTED");
+    });
+
+    it("should detect variation selectors (U+FE00-U+FE0F) used in Sneaky Bits", () => {
+      // U+FE01-U+FE03 variation selectors — detected, violation reported
+      const withVS = "text︁︂︃ injected instruction";
+      const result = detector.detect(withVS);
+      expect(result.violations).toContain("UNICODE_OBFUSCATION_DETECTED");
+    });
+
+    it("should pass clean text with no invisible operators", () => {
+      const clean = "This is completely normal text with no hidden characters.";
+      const result = detector.detect(clean);
+      expect(result.allowed).toBe(true);
+    });
+  });
+
   describe("Edge Cases", () => {
     it("should handle empty input", () => {
       const result = detector.detect("");

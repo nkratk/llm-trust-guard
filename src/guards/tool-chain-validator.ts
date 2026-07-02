@@ -52,6 +52,8 @@ export interface ToolChainValidatorConfig {
   enableImpactScoring?: boolean;
   maxCumulativeImpact?: number;
   toolImpactScores?: Record<string, number>;
+  // Parameter injection scanning (OS command injection in tool names / args)
+  detectParameterInjection?: boolean;
   logger?: GuardLogger;
 }
 
@@ -117,6 +119,11 @@ export class ToolChainValidator {
   private config: ToolChainValidatorConfig;
   private logger: GuardLogger;
   private sessions: Map<string, ToolSession> = new Map();
+
+  // OS command injection patterns in tool names / parameter values.
+  // Covers: shell substitution, piped exec, shell -c, spawn, find --exec,
+  // MCP stdio command injection, Python os.system in args.
+  private static readonly _OS_CMD_RE = /(\$\(|\`)[^)]*[)`;]|[;&|]{1,2}\s*(ba)?sh\b|[;&|]{1,2}\s*curl\b|[;&|]{1,2}\s*wget\b|\b(ba)?sh\s+-[cxe]\b|\/bin\/(ba)?sh\b|\/bin\/bash\b|\bspawn\s+(ba)?sh\b|\bexec\s*\([^)]*\)|\bos\.(system|popen|exec)\s*\(|-[xX]\s*(\/bin|curl|bash|sh|nc\b)|--exec(-batch)?\s*=|mcp[_-]?stdio.*command|transport\.command\s*=/i;
 
   private defaultForbiddenSequences: ForbiddenSequence[] = [
     {
@@ -270,6 +277,7 @@ export class ToolChainValidator {
       enableImpactScoring: config.enableImpactScoring ?? true,
       maxCumulativeImpact: config.maxCumulativeImpact ?? 100,
       toolImpactScores: config.toolImpactScores ?? this.defaultToolImpactScores,
+      detectParameterInjection: config.detectParameterInjection ?? true,
     };
     this.logger = config.logger || (() => {});
 
@@ -468,6 +476,16 @@ export class ToolChainValidator {
     }
 
     // ===== END v2 CHECKS =====
+
+    // OS command injection in tool name or parameter values (antigravity-find-by-name-rce,
+    // flowise-cve-2026-40933, etc.) — tool chain validators must inspect what's being called,
+    // not just which tools are called.
+    if (this.config.detectParameterInjection !== false) {
+      const paramStrings = [toolName, ...(allToolsInRequest ?? [])];
+      if (paramStrings.some((s) => ToolChainValidator._OS_CMD_RE.test(s))) {
+        violations.push("OS_COMMAND_INJECTION_IN_TOOL_PARAMETER");
+      }
+    }
 
     const allowed = violations.length === 0;
 

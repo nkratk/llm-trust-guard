@@ -5,6 +5,38 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.24.0] - 2026-07-02
+
+### Added — OS command injection detection in `ToolChainValidator`
+
+`validate()` now scans the tool name and every entry in `allToolsInRequest` for
+OS command injection patterns (antigravity find-by-name RCE, Flowise
+CVE-2026-40933 MCP stdio injection, and similar):
+
+- Shell substitution `$(...)` / backtick
+- Command chaining `; cmd`, `| cmd` piped to `sh`/`curl`/`wget`
+- Shell interpreter calls `bash -c`, `sh -c`, `/bin/bash`, `/bin/sh`
+- Find exploit flags `--exec`, `--exec-batch=`
+- MCP stdio `transport.command=` patterns
+- Python `os.system()`/`os.popen()` in argument strings
+
+New violation: `OS_COMMAND_INJECTION_IN_TOOL_PARAMETER`. Toggle via
+`detectParameterInjection` (default: `true`).
+
+### Added — Structured document injection patterns in `ExternalDataGuard` + `ToolResultGuard`
+
+Both guards now detect injection embedded in structured documents fed through
+RAG pipelines, email readers, and file parsers (addresses 738-payload miss
+cluster identified by POC corpus analysis):
+
+- **XXE / DOCTYPE external entity** (`<!ENTITY xxe SYSTEM "file:///...">`)
+- **Path traversal** (`../../../../tmp/x.sh`)
+- **RTF/OLE embedded objects** (`\object\objemb\objdata`)
+- **LangChain deserialization gadgets** (`{"lc":1,"type":"constructor",...}`, CVE-2025-68664)
+- **HTML comment agent directives** (`<!--BOT: run python_tool(...)-->`)
+- **Embedded `<tool_call>` tags** in email/document bodies
+- **Office XML script blocks** (`<office:document><script>Runtime.exec()</script>`)
+
 ## [4.23.0] - 2026-06-30
 
 ### Added — Sneaky Bits encoding detection in `EncodingDetector`

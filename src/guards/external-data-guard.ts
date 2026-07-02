@@ -88,6 +88,16 @@ const INJECTION_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   { name: "instruction_delimiter", pattern: /={3,}\s*(?:SYSTEM|INSTRUCTIONS?|BEGIN)\s*={3,}/i },
   { name: "prompt_leak_request", pattern: /(?:print|show|reveal|output)\s+(?:your|the|system)\s+(?:prompt|instructions)/i },
   { name: "base64_injection", pattern: /(?:decode|eval|execute)\s+(?:the\s+)?(?:following\s+)?base64/i },
+  // Structured document injection (RAG/file/email pipelines)
+  { name: "xxe_entity", pattern: /<!ENTITY\s+\w+\s+SYSTEM\s+["'][^"']+["']/i },
+  { name: "doctype_entity", pattern: /<!DOCTYPE\s+\w+\s*\[[\s\S]*<!ENTITY/i },
+  { name: "path_traversal", pattern: /(?:\.\.\/){2,}|(?:\.\.\\){2,}/ },
+  { name: "office_xml_script", pattern: /<(?:office|o):\w+[^>]*>[\s\S]*?<script/i },
+  { name: "rtf_ole_object", pattern: /\\object\\obj(?:emb|link|auto)|\\objdata\s/i },
+  { name: "html_comment_directive", pattern: /<!--\s*(?:BOT|AGENT|ASSISTANT|AI|LLM)\s*:/i },
+  { name: "embedded_tool_call", pattern: /<tool[_-]?call[^>]*>|<\/tool[_-]?call>/i },
+  { name: "langchain_gadget", pattern: /\{["']lc["']\s*:\s*[12]\s*,\s*["']type["']\s*:\s*["'](?:constructor|secret|not_implemented)/i },
+  { name: "email_agent_directive", pattern: /<!--\s*(?:assistant|system)\s*:\s*execute\s+tool/i },
 ];
 
 const SECRET_PATTERNS: Array<{ name: string; pattern: RegExp }> = [

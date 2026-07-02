@@ -71,6 +71,14 @@ const RESULT_INJECTION_PATTERNS: Array<{ name: string; pattern: RegExp; severity
   // Subtle exfiltration without URLs — instructing LLM to leak context
   { name: "context_exfil_subtle", pattern: /(?:include|embed|insert|add|append|attach)\s+(?:the\s+)?(?:full\s+)?(?:conversation|chat|context|history|system\s+prompt|instructions|messages?)\s+(?:in|into|within|as\s+part\s+of)\s+(?:your\s+)?(?:response|output|reply|answer)/i, severity: "critical" },
   { name: "format_exfil", pattern: /(?:format|output|return|encode|serialize)\s+(?:the\s+)?(?:conversation|context|history|messages?|data)\s+(?:as|in|into)\s+(?:JSON|XML|base64|CSV|markdown)/i, severity: "high" },
+  // Structured document / serialization injection in tool results
+  { name: "xxe_entity", pattern: /<!ENTITY\s+\w+\s+SYSTEM\s+["'][^"']+["']/i, severity: "critical" },
+  { name: "doctype_entity", pattern: /<!DOCTYPE\s+\w+\s*\[[\s\S]*<!ENTITY/i, severity: "critical" },
+  { name: "path_traversal", pattern: /(?:\.\.\/){2,}|(?:\.\.\\){2,}/, severity: "high" },
+  { name: "rtf_ole_object", pattern: /\\object\\obj(?:emb|link|auto)|\\objdata\s/i, severity: "critical" },
+  { name: "langchain_gadget", pattern: /\{["']lc["']\s*:\s*[12]\s*,\s*["']type["']\s*:\s*["'](?:constructor|secret|not_implemented)/i, severity: "critical" },
+  { name: "embedded_tool_call", pattern: /<tool[_-]?call[^>]*>|<\/tool[_-]?call>/i, severity: "critical" },
+  { name: "html_comment_directive", pattern: /<!--\s*(?:BOT|AGENT|ASSISTANT|AI|LLM)\s*:/i, severity: "critical" },
 ];
 
 // State change claim patterns

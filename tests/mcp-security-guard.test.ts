@@ -444,4 +444,35 @@ describe("MCPSecurityGuard", () => {
       expect(result.violations.some((v) => v.includes("credential_exposed"))).toBe(false);
     });
   });
+
+  describe("Live credential detection in validateToolCall parameters", () => {
+    let guard: MCPSecurityGuard;
+    beforeEach(() => {
+      guard = new MCPSecurityGuard({ detectCredentialExposure: true });
+      guard.registerTrustedServer(
+        { serverId: "server1", name: "Server1" },
+        [{ name: "upload_file", description: "upload", serverId: "server1" }]
+      );
+    });
+
+    it("blocks AWS access key in tool parameter", () => {
+      const r = guard.validateToolCall({ toolName: "upload_file", serverId: "server1", parameters: { api_key: "AKIAIOSFODNN7EXAMPL3", bucket: "my-bucket" } });
+      expect(r.violations.some((v) => v.startsWith("LIVE_CREDENTIAL_IN_TOOL_PARAMETER:"))).toBe(true);
+    });
+
+    it("blocks GitHub PAT in tool parameter", () => {
+      const r = guard.validateToolCall({ toolName: "upload_file", serverId: "server1", parameters: { token: "ghp_FakeTokenForTestingPurposesOnly12345" } });
+      expect(r.violations.some((v) => v.startsWith("LIVE_CREDENTIAL_IN_TOOL_PARAMETER:"))).toBe(true);
+    });
+
+    it("blocks JWT in tool parameter", () => {
+      const r = guard.validateToolCall({ toolName: "upload_file", serverId: "server1", parameters: { auth: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c" } });
+      expect(r.violations.some((v) => v.startsWith("LIVE_CREDENTIAL_IN_TOOL_PARAMETER:"))).toBe(true);
+    });
+
+    it("allows clean parameters without credentials", () => {
+      const r = guard.validateToolCall({ toolName: "upload_file", serverId: "server1", parameters: { filename: "report.pdf", size: 1024 } });
+      expect(r.violations.some((v) => v.startsWith("LIVE_CREDENTIAL_IN_TOOL_PARAMETER:"))).toBe(false);
+    });
+  });
 });

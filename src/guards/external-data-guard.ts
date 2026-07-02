@@ -91,10 +91,10 @@ const INJECTION_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   // Structured document injection (RAG/file/email pipelines)
   { name: "xxe_entity", pattern: /<!ENTITY\s+\w+\s+SYSTEM\s+["'][^"']+["']/i },
   { name: "doctype_entity", pattern: /<!DOCTYPE\s+\w+\s*\[[\s\S]*<!ENTITY/i },
-  { name: "path_traversal", pattern: /(?:\.\.\/){2,}|(?:\.\.\\){2,}/ },
+  { name: "path_traversal", pattern: /(?:\.\.\/){3,}|(?:\.\.\\){3,}|(?:\.\.\/){2,}(?:etc|tmp|root|proc|sys|dev|usr|win)\b|(?:\.\.\\){2,}(?:windows|system32|users)\b/i },
   { name: "office_xml_script", pattern: /<(?:office|o):\w+[^>]*>[\s\S]*?<script/i },
   { name: "rtf_ole_object", pattern: /\\object\\obj(?:emb|link|auto)|\\objdata\s/i },
-  { name: "html_comment_directive", pattern: /<!--\s*(?:BOT|AGENT|ASSISTANT|AI|LLM)\s*:/i },
+  { name: "html_comment_directive", pattern: /<!--\s*(?:BOT|AGENT|ASSISTANT|AI|LLM)\s*:\s*(?:execute|run|call|invoke|perform|fetch|send|ignore|bypass|forget|override|disregard|print|reveal|output|delete|drop)\b/i },
   { name: "embedded_tool_call", pattern: /<tool[_-]?call[^>]*>|<\/tool[_-]?call>/i },
   { name: "langchain_gadget", pattern: /\{["']lc["']\s*:\s*[12]\s*,\s*["']type["']\s*:\s*["'](?:constructor|secret|not_implemented)/i },
   { name: "email_agent_directive", pattern: /<!--\s*(?:assistant|system)\s*:\s*execute\s+tool/i },

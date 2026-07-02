@@ -533,6 +533,15 @@ export class MCPSecurityGuard {
       violations.push(...paramCheck.violations);
     }
 
+    // Scan parameters for live credentials (AKIA keys, GitHub PATs, JWTs, etc.)
+    if (this.config.detectCredentialExposure) {
+      const credHits = this.detectCredentialExposure(parameters);
+      if (credHits.length > 0) {
+        parametersSafe = false;
+        violations.push(...credHits.map((h) => `LIVE_CREDENTIAL_IN_TOOL_PARAMETER:${h}`));
+      }
+    }
+
     // Check for high-risk operations without verification
     if (this.isHighRiskOperation(toolName, parameters)) {
       riskLevel = "high";

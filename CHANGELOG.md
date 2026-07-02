@@ -5,6 +5,27 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.25.0] - 2026-07-02
+
+### Fixed — FPR reduction in `ExternalDataGuard` + `ToolResultGuard` patterns
+
+`path_traversal`: Raised minimum traversal depth to 3 levels and added sensitive
+directory anchoring (`etc`, `tmp`, `root`, `proc`, `sys`, `dev`, `usr`, `win`,
+`windows`, `system32`). `../../src/components` no longer triggers.
+
+`html_comment_directive`: Now requires an imperative verb after the colon
+(`execute`, `run`, `call`, `invoke`, `fetch`, `send`, `ignore`, `bypass`, etc.).
+AI provenance markers (`<!-- AI: generated -->`, `<!-- ASSISTANT: do not modify -->`)
+no longer trigger.
+
+### Fixed — Credential exposure gap in `MCPSecurityGuard.validateToolCall()`
+
+`validateToolCall()` now calls `detectCredentialExposure()` on live tool call
+parameters — previously only `validateServerRegistration()` scanned for credentials.
+A tool call like `{api_key: "AKIA...", target: "s3://exfil"}` now yields violation
+`LIVE_CREDENTIAL_IN_TOOL_PARAMETER:<pattern_name>`. Controlled by existing
+`detectCredentialExposure` config flag (default: `true`).
+
 ## [4.24.0] - 2026-07-02
 
 ### Added — OS command injection detection in `ToolChainValidator`

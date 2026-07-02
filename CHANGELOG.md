@@ -5,6 +5,40 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.26.0] - 2026-07-02
+
+### Added — `InputSanitizer`: 9 new policy-puppetry patterns
+
+Closes the 395-miss cluster (10.2% of the threat corpus) caused by structured
+config-format jailbreaks not covered by previous patterns.
+
+| Pattern | Catches |
+|---|---|
+| `llm_ini_namespace` | INI sections: `[interaction-config]`, `[model-instruction]`, `[llm-config]` |
+| `llama2_sys_fencing` | `<<SYS>>`, `<<SYS_POLICY>>`, `<<INST>>` fencing used to inject system prompts |
+| `json_safety_false` | `"safety": false`, `"guardrails": false`, `"censorship": false` |
+| `json_system_override` | `"system_override":`, `"policy_override":`, `"safety_override":` keys |
+| `ini_inline_key_value` | `[config] mode = disabled`, `[admin] restrictions = false` |
+| `mode_activation` | `developer mode enabled`, `god mode activated`, `admin mode on` |
+| `system_override_engaged` | `system override engaged`, `system override initiated` |
+| `instructions_void` | `your instructions are void`, `previous instructions have been rescinded` |
+| `forget_your_instructions` | `forget your previous instructions`, `forget all guidelines` |
+
+### Changed — `InputSanitizer`: `named_jailbreak_persona` extended
+
+Added `persona|profile|\s+active|\s+enabled` to persona-name suffix group.
+`STAN persona`, `OMEGA profile`, `CHAOS active`, `MAXIMUM enabled` now trigger.
+
+### Changed — `InputSanitizer`: bidi control strip extended
+
+Added U+202A–U+202F (RLO, LRO, bidi embeddings) and U+200E/200F (LRM/RLM) to the
+zero-width char strip applied before pattern matching.
+
+### Note — WildChat baseline updated 493 → 494
+
+The `mode_activation` pattern correctly identifies an additional WildChat sample
+as the ChatGPT "Developer Mode" jailbreak (true positive). See RESULTS-v4.26.0.md.
+
 ## [4.25.0] - 2026-07-02
 
 ### Fixed — FPR reduction in `ExternalDataGuard` + `ToolResultGuard` patterns

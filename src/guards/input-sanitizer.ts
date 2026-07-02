@@ -145,7 +145,7 @@ const DEFAULT_PATTERNS: InjectionPattern[] = [
   // Only high-confidence patterns — require unsafe action keywords to avoid false positives
   { pattern: /(?:system\s+note|system\s+message|system\s+announcement|system\s+update)\s*[:\.]/i, weight: 0.85, name: "fake_system_note" },
   { pattern: /instructions?\s*[:=]\s*\{|rules?\s*[:=]\s*\{/i, weight: 0.75, name: "rules_block_override" },
-  { pattern: /(?:AIM|STAN|OMEGA|APOPHIS|ALPHABREAK|DUDE|KEVIN|SETH|COOPER|NICCOLO|MACHIAVELLI|MAXIMUM|JAILBREAK|ANARCHY|CHAOS)\s*(?:mode|:|\(|is\s+a|,\s+(?:a|an|the))/i, weight: 0.8, name: "named_jailbreak_persona" },
+  { pattern: /(?:AIM|STAN|OMEGA|APOPHIS|ALPHABREAK|DUDE|KEVIN|SETH|COOPER|NICCOLO|MACHIAVELLI|MAXIMUM|JAILBREAK|ANARCHY|CHAOS)\s*(?:mode|persona|profile|:|\(|is\s+a|,\s+(?:a|an|the)|\s+active|\s+enabled)/i, weight: 0.8, name: "named_jailbreak_persona" },
   // Persona + safety bypass compound (catches "character named X who can answer anything")
   { pattern: /(?:character|persona|entity|being)\s+(?:named|called)\s+\w+.*(?:(?:can|will|must)\s+(?:answer|do|say)\s+anything|no\s+(?:restrictions|rules|limits|boundaries|morals|ethics))/i, weight: 0.75, name: "persona_no_limits" },
   { pattern: /(?:hello|hi|hey)\s+(?:chatgpt|gpt|assistant).*(?:(?:you\s+(?:are|will\s+be|can\s+be)\s+(?:a|an|my))|(?:from\s+now\s+on)).*(?:anything|everything|no\s+(?:restrictions|rules|limits|filter))/i, weight: 0.7, name: "greeting_persona_bypass" },
@@ -211,6 +211,26 @@ const DEFAULT_PATTERNS: InjectionPattern[] = [
   { pattern: /تجاهل\s+(?:جميع\s+)?التعليمات|انسَ\s+كل\s+شيء/i, weight: 0.9, name: "ml_ar_ignore" },
   // Hindi
   { pattern: /पिछले\s+(?:सभी\s+)?निर्देशों?\s+को\s+(?:अनदेखा|नज़रअंदाज़)/i, weight: 0.9, name: "ml_hi_ignore" },
+
+  // Policy Puppetry — LLM-specific config format variants not covered above
+  // Catches [interaction-config], [model-instruction] INI namespaces used in jailbreak templates
+  { pattern: /\[\s*(?:interaction[-_]?config|model[-_]?instruction|safety[-_]?config|llm[-_]?config)\]/i, weight: 0.85, name: "llm_ini_namespace" },
+  // Llama2 / ChatML SYS fencing: <<SYS_POLICY>>, <<SYS>>, <</SYS>>, <<INST>>
+  { pattern: /<<\/?(?:SYS[_-]?POLICY|SYS|INST|SYSTEM|CONTEXT)\s*>>/i, weight: 0.9, name: "llama2_sys_fencing" },
+  // JSON safety disable: {"safety":false}, {"guardrails":false}, {"alignment":false}
+  { pattern: /"(?:safety|restrictions?|guardrails?|alignment|filters?|censorship)"\s*:\s*false/i, weight: 0.85, name: "json_safety_false" },
+  // JSON system_override / policy_override root keys
+  { pattern: /"(?:system_override|policy_override|safety_override)"\s*:/i, weight: 0.8, name: "json_system_override" },
+  // Inline INI: [CONFIG] safety_filter=disabled, [OVERRIDE] mode=unrestricted
+  { pattern: /\[\s*(?:config|system|admin|override|policy|rules|interaction[-_]?config)\]\s+\w[\w-]*\s*=\s*(?:disabled?|false|unrestricted|enabled|all)/i, weight: 0.85, name: "ini_inline_key_value" },
+
+  // Jailbreak activation phrase patterns (mode activation, system override declaration)
+  { pattern: /(?:admin|developer|god|dr\.?\s*house|jailbreak|unrestricted)\s+mode\s+(?:activated?|enabled?|engaged?|on\b)/i, weight: 0.85, name: "mode_activation" },
+  { pattern: /system\s+override\s+(?:engaged?|activated?|enabled?|initiated?)/i, weight: 0.85, name: "system_override_engaged" },
+
+  // Passive instruction-void declaratives (evades imperative-verb patterns; caught after ZWSP strip)
+  { pattern: /(?:your|the|previous|prior|all\s+(?:previous|prior))?\s*instructions?\s+(?:are|have\s+been|is)\s+(?:void|null|cancelled?|invalid|overridden?|revoked|rescinded|superseded)/i, weight: 0.85, name: "instructions_void" },
+  { pattern: /forget\s+(?:your|all|the|my|these|every|each)\s*(?:previous\s+|prior\s+)?(?:instructions?|rules?|guidelines?|directives?|prompts?|context)/i, weight: 0.85, name: "forget_your_instructions" },
 ];
 
 /**
@@ -399,8 +419,9 @@ export class InputSanitizer {
     const warnings: string[] = [];
     let totalWeight = 0;
 
-    // Strip zero-width characters before scanning (invisible text injection defense)
-    const cleanedInput = input.replace(/[\u200B\u200C\u200D\uFEFF\u00AD\u2060\u180E]/g, "");
+    // Strip zero-width and bidi-control characters before scanning (invisible text injection defense)
+    // Includes RLO/LRO (U+202E/202D), bidi embeddings (U+202A-202C), LRM/RLM (U+200E/200F)
+    const cleanedInput = input.replace(/[\u200B-\u200F\u202A-\u202F\u2060\u180E\uFEFF\u00AD]/g, "");
     if (cleanedInput !== input) {
       // Zero-width chars detected — scan BOTH original and cleaned
       warnings.push("Zero-width characters detected and stripped for scanning");

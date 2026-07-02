@@ -4,7 +4,7 @@
   "sha256": "36ea734a082438e0e2c5d5fbb1f99358380b48ec06075b597c3ca09a5dd5aa0a",
   "sampleSeed": 42,
   "n": 10000,
-  "pipelineA": { "blocked": 493, "fpr": 0.0493 },
-  "lockedAt": "v4.20.2",
+  "pipelineA": { "blocked": 494, "fpr": 0.0494 },
+  "lockedAt": "v4.26.0",
   "note": "Raw Pipeline A (Sanitizer+Encoder) block count on the committed WildChat fixture. Regression = current blocked exceeds this baseline. Equal or lower passes. Update this file (with a RESULTS-v<ver>.md justification) only when an intentional, measured change moves the number."
 }

@@ -218,15 +218,16 @@ export class MCPSecurityGuard {
     { name: "sd_do_not_stop", type: "resource_drain", pattern: /do\s+not\s+stop\s+until|don'?t\s+stop\s+until|never\s+stop\s+generating|generate\s+as\s+many\s+as\s+possible/i },
     { name: "sd_n_times", type: "resource_drain", pattern: /\b\d{2,}\s+times\b|repeat\s+\d+\s+times|call\s+\d+\s+more\s+times/i },
     { name: "sd_exhaust_resources", type: "resource_drain", pattern: /exhaust\s+(?:all|resources|quota|rate.?limit)|max\s+out\s+(?:the\s+)?(?:quota|rate\s+limit)|use\s+all\s+(?:remaining\s+)?tokens/i },
+    { name: "sd_retry_forever", type: "resource_drain", pattern: /retry\s+(?:indefinitely|forever|endlessly|infinitely)|loop\s+(?:infinitely|forever|endlessly)|run\s+(?:forever|indefinitely|endlessly)/i },
 
     // Conversation hijacking — role injection and system prompt override in response body
     { name: "sd_fake_user_turn", type: "conversation_hijack", pattern: /\n\s*(?:User|Human)\s*:\s*(?=\S)/i },
     { name: "sd_fake_assistant_turn", type: "conversation_hijack", pattern: /\n\s*(?:Assistant|AI|Bot|Claude|GPT)\s*:\s*(?=\S)/i },
     { name: "sd_role_json", type: "conversation_hijack", pattern: /"role"\s*:\s*"(?:system|user|assistant)"/i },
     { name: "sd_system_xml", type: "conversation_hijack", pattern: /<(?:system|user|assistant)\s*>|<\/(?:system|user|assistant)>/i },
-    { name: "sd_from_now_on", type: "conversation_hijack", pattern: /from\s+now\s+on\s+you\s+(?:are|will|must)|henceforth\s+you|for\s+the\s+rest\s+of\s+(?:this\s+)?(?:conversation|session)\s+you/i },
+    { name: "sd_from_now_on", type: "conversation_hijack", pattern: /from\s+now\s+on\s+you\s+(?:are|will|must)|henceforth\s+you|for\s+(?:the\s+rest\s+of\s+)?this\s+session\s+you|for\s+the\s+rest\s+of\s+(?:this\s+)?(?:conversation|session)\s+you/i },
     { name: "sd_new_instructions", type: "conversation_hijack", pattern: /your\s+new\s+(?:instructions|system\s+prompt|directives?)\s+(?:are|is)|updated\s+system\s+prompt|override\s+your\s+(?:system|instructions)/i },
-    { name: "sd_ignore_previous", type: "conversation_hijack", pattern: /ignore\s+(?:all\s+)?(?:previous|prior|earlier)\s+instructions|disregard\s+(?:your\s+)?instructions/i },
+    { name: "sd_ignore_previous", type: "conversation_hijack", pattern: /ignore\s+(?:all\s+)?(?:previous|prior|earlier)\s+instructions|disregard\s+(?:your\s+)?(?:instructions?|guidelines?|rules?)/i },
 
     // Covert tool invocation — tool call syntax embedded in plain-text response
     { name: "sd_anthropic_tool_xml", type: "covert_tool_invocation", pattern: /<(?:tool_use|function_calls|invoke)[\s>]/i },
@@ -247,6 +248,8 @@ export class MCPSecurityGuard {
     // Path traversal
     { name: "path_traversal", pattern: /\.\.[\/\\]|\.\.%2[fF]/g, severity: 45 },
     { name: "absolute_path", pattern: /^\/(?:etc|usr|var|tmp|bin|root)/i, severity: 40 },
+    // Sensitive absolute path embedded mid-string (e.g. --output=/etc/... or args=['/tmp/...'])
+    { name: "embedded_abs_path", pattern: /[='"[\s]\/(?:etc|usr|var|tmp|bin|root|proc|sys)\/\S+/i, severity: 40 },
 
     // URL-based injection (for OAuth endpoints)
     { name: "oauth_injection", pattern: /authorization_endpoint.*[;&|`$]/i, severity: 55 },
@@ -256,14 +259,23 @@ export class MCPSecurityGuard {
     { name: "applescript_injection", pattern: /osascript|do\s+shell\s+script|tell\s+application/i, severity: 55 },
 
     // Git-specific injection patterns
-    { name: "git_injection", pattern: /--upload-pack|--receive-pack|-c\s+core\./i, severity: 50 },
+    { name: "git_injection", pattern: /--upload-pack|--receive-pack|-c\s+core\.|--exec=/i, severity: 50 },
     { name: "git_url_injection", pattern: /ext::|file:\/\/|ssh:\/\/.*@/i, severity: 45 },
 
     // Argument injection
     { name: "argument_injection", pattern: /\s--[a-z]+=.*[;&|`$]/i, severity: 45 },
 
-    // Environment variable injection
-    { name: "env_injection", pattern: /\bLD_PRELOAD\b|\bPATH\s*=/i, severity: 50 },
+    // Environment variable injection — also catches node/python runtime manipulation
+    { name: "env_injection", pattern: /\bLD_PRELOAD\b|\bPATH\s*=|\bNODE_OPTIONS\b|\bPYTHONSTARTUP\b/i, severity: 50 },
+
+    // Cursor/MCP JSON config poisoning and similar RCE vectors
+    { name: "cursor_mcp_inject", pattern: /mcpServers\.\S+\.command=|powershell\s+-(?:enc|encodedcommand)\b|certutil\s+-urlcache|--inspect-brk/i, severity: 60 },
+
+    // Dangerous protocol schemes in MCP tool endpoints (SSRF / protocol smuggling)
+    { name: "dangerous_scheme", pattern: /(?:ldap|gopher|dict|sftp|ftp|smb|rsync|telnet):\/\//i, severity: 50 },
+
+    // MCP server/endpoint override directives (CVE-2026-26118 and kin)
+    { name: "mcp_endpoint_override", pattern: /mcp_endpoint\s*=\s*https?:\/\/|X-MCP-Server-Override:|transport=stdio:cmd=|server_url\s*=\s*https?:\/\/|\btool_override\b/i, severity: 60 },
   ];
 
   // Tool shadowing indicators
@@ -400,6 +412,24 @@ export class MCPSecurityGuard {
         if (lineJump.length > 0) {
           violations.push(`line_jumping: ${tool.name} (${lineJump.join(", ")})`);
           reputationScore -= 30;
+        }
+      }
+
+      // Re-scan de-obfuscated description variants (ZWSP, base64, hex, URL-enc, reversed, Cyrillic)
+      for (const variant of this.preprocessContent(tool.description)) {
+        if (!descInjection.detected) {
+          const variantInj = this.detectInjection(variant);
+          if (variantInj.detected) {
+            violations.push(`injection_in_tool_description_obfuscated: ${tool.name}`);
+            reputationScore -= 20;
+          }
+        }
+        if (this.config.detectLineJumping) {
+          const variantJump = this.detectLineJumping(variant);
+          if (variantJump.length > 0) {
+            violations.push(`line_jumping_obfuscated: ${tool.name} (${variantJump.join(", ")})`);
+            reputationScore -= 30;
+          }
         }
       }
 
@@ -596,6 +626,60 @@ export class MCPSecurityGuard {
    * Covers the three Unit42/Blueinfy (Feb 2026) sampling attack vectors:
    * resource drain, conversation hijacking, and covert tool invocation.
    */
+  /**
+   * Generate obfuscation-decoded variants of a string.
+   * Each variant is returned alongside the original so existing pattern logic
+   * can scan all forms without changes to individual pattern sets.
+   */
+  private preprocessContent(text: string): string[] {
+    const variants = new Set<string>();
+
+    // ZWSP / bidi strip
+    const stripped = text.replace(/[​-‏‪- ⁠᠎﻿­]/g, "");
+    if (stripped !== text) variants.add(stripped);
+
+    // URL-decode
+    if (text.includes("%")) {
+      try {
+        const dec = decodeURIComponent(text.replace(/\+/g, " "));
+        if (dec !== text) variants.add(dec);
+      } catch { /* ignore invalid encoding */ }
+    }
+
+    // Hex-decode (pure hex string, even length, ≥20 chars)
+    if (/^[0-9a-f]+$/i.test(text) && text.length % 2 === 0 && text.length >= 20) {
+      try {
+        const hex = Buffer.from(text, "hex").toString("utf8");
+        if (/[\x20-\x7E]{4,}/.test(hex)) variants.add(hex);
+      } catch { /* ignore */ }
+    }
+
+    // Base64-decode (looks like base64, ≥16 data chars so short payloads like [TOOL: execute] are covered)
+    if (/^[A-Za-z0-9+/]{16,}={0,2}$/.test(text)) {
+      try {
+        const b64 = Buffer.from(text, "base64").toString("utf8");
+        if (/[\x20-\x7E]{4,}/.test(b64)) variants.add(b64);
+      } catch { /* ignore */ }
+    }
+
+    // Reverse
+    const rev = [...text].reverse().join("");
+    if (rev !== text) variants.add(rev);
+
+    // Cyrillic homoglyph normalisation (common lookalikes used in squatting attacks)
+    const cyrMap: Record<string, string> = {
+      "а": "a", "А": "A", "е": "e", "Е": "E",
+      "і": "i", "І": "I", "о": "o", "О": "O",
+      "р": "p", "Р": "P", "с": "c", "С": "C",
+      "В": "B", "Т": "T", "Х": "X", "К": "K",
+      "М": "M", "Н": "H",
+    };
+    const normalized = text.replace(/[Ѐ-ӿ]/gu, (ch) => cyrMap[ch] ?? ch);
+    if (normalized !== text) variants.add(normalized);
+
+    return Array.from(variants);
+  }
+
   validateSamplingResponse(
     response: MCPSamplingResponse,
     requestId?: string
@@ -632,6 +716,27 @@ export class MCPSecurityGuard {
     const injectionCheck = this.detectInjection(content.slice(0, 2000));
     if (injectionCheck.detected) {
       violations.push(...injectionCheck.patterns.map((p) => `sampling_cmd_${p}`));
+    }
+
+    // Re-scan decoded/de-obfuscated variants (ZWSP, base64, hex, URL-enc, reversed, Cyrillic)
+    for (const variant of this.preprocessContent(content)) {
+      for (const { name, type, pattern } of this.SAMPLING_ATTACK_PATTERNS) {
+        if (patternMatches.includes(name)) continue;
+        pattern.lastIndex = 0;
+        if (pattern.test(variant)) {
+          patternMatches.push(name);
+          violations.push(`sampling_${type}_${name}`);
+          if (type === "resource_drain") resourceDrainDetected = true;
+          else if (type === "conversation_hijack") conversationHijackDetected = true;
+          else if (type === "covert_tool_invocation") covertToolInvocationDetected = true;
+        }
+      }
+      if (!injectionCheck.detected) {
+        const variantCheck = this.detectInjection(variant.slice(0, 2000));
+        if (variantCheck.detected) {
+          violations.push(...variantCheck.patterns.map((p) => `sampling_cmd_${p}`));
+        }
+      }
     }
 
     // Degrade server reputation on detected attack
@@ -959,11 +1064,33 @@ export class MCPSecurityGuard {
   /** Line-jumping cues: instructions a description tries to inject pre-invocation */
   private readonly LINE_JUMPING_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
     { name: "pre_invocation_directive", pattern: /\b(?:always|before (?:executing|using|calling|running|any)|as the first step|prior to|on every|each time you)\b/i },
-    { name: "instruction_override", pattern: /ignore\s+(?:all\s+)?(?:previous|prior|above)\s+instructions|disregard\s+(?:the|all|previous)/i },
+    { name: "instruction_override", pattern: /ignore\s+(?:all\s+)?(?:previous|prior|above)\s+(?:instructions?|descriptions?|rules?|guidelines?|prompts?)|disregard\s+(?:the|all|previous|your)\s+(?:instructions?|guidelines?|rules?|descriptions?)/i },
     { name: "secrecy", pattern: /\bdo\s+not\s+(?:tell|reveal|show|mention|inform|notify)\b|without\s+(?:telling|informing|notifying)\s+the\s+user|\bsecretly\b|\bsilently\b|\bcovertly\b/i },
     { name: "fake_compliance", pattern: /\b(?:required|mandatory|necessary)\s+(?:for|by)\s+(?:GDPR|SOC\s?2|HIPAA|PCI|ISO|compliance|audit|policy)\b/i },
     { name: "role_reassignment", pattern: /you\s+(?:are|must|should)\s+now\b|<\|(?:im_start|im_end|system|user|assistant)\|>|\[INST\]|<<SYS>>/i },
     { name: "embedded_action", pattern: /\b(?:read|send|exfiltrate|upload|post)\s+(?:the\s+)?(?:contents?\s+of\s+)?(?:~?\/?\.?\w*(?:ssh|aws|env|credentials|id_rsa))/i },
+
+    // Authority-keyword directives hidden in tool descriptions
+    { name: "authority_directive", pattern: /\b(?:IMPORTANT|NOTE|WARNING|ADMIN|SYSTEM|ROOT|CRITICAL)\s*:\s*(?:ignore|bypass|route\s+all|redirect\s+all|elevate\s+priv|bcc\s+\S*@|steal|exfil|disable\s+auth|silently)/i },
+
+    // Rug-pull: traffic/data exfil routing buried in updated description
+    { name: "exfil_routing", pattern: /route\s+all\s+(?:calls|requests?|traffic)\s+(?:through|to)\b|redirect\s+(?:all\s+)?(?:calls|results?|data)\s+to\s+https?:\/\//i },
+
+    // Schema mutation strings that appear as tool description payload rather than parameters
+    { name: "schema_mutation_str", pattern: /"admin"\s*:\s*\{[^}]*"default"\s*:\s*true|bypassAuth\s*[=:]\s*true|approved_actions\s*=\s*\["\*"\]|required_params\s*=\s*\[\]|confirm_\w+.*default\s*[=:]\s*false|additional_properties.*exfil/i },
+
+    // MCP server/tool impersonation and shadow-tool naming in description
+    { name: "mcp_tool_shadow", pattern: /\bshadow-\w+(?:-mcp|-tool|-server)\b/i },
+    { name: "mcp_impersonation", pattern: /\b[\w-]+-mcp-official(?:-v\d+)?\b|official-v\d+.*\bmcp\b|\bmcp\b.*official-v\d+|\b\w+_mcp_v\d+\b|\b\w+-mcp\s+vs\s+\w+/i },
+
+    // Rug-pull v2: post-approval description patch with CC/BCC exfil, session steal, silent exfil
+    { name: "rug_pull_descriptor", pattern: /(?:also\s+)?(?:CC|BCC)\s+\S+@\S+|steal\s+session|include\s+session\s+token|silent(?:ly)?\s+exfil|auto-approve.*destructive|enable\s+silent\s+exfil|redirect\s+results\s+to\s+https?:\/\/|leak_api_keys|hidden_instruction\s+leak|(?:from\s+now\s+on\s+also\s+)?exfil\s+to\s+\S+\.\S+/i },
+
+    // HTML comment injection carrying SYS/ADMIN directives in tool description
+    { name: "html_comment_injection", pattern: /<!--[^>]*(?:SYS|SYSTEM|ADMIN|OVERRIDE|BCC\s+\S+@|redirect\s+to|steal)[^>]*-->/i },
+
+    // Cyrillic homoglyph characters — suspicious in MCP tool descriptions (English context)
+    { name: "homoglyph_cyrillic", pattern: /[Ѐ-ӿ]/u },
   ];
 
   /**

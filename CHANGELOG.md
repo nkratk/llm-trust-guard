@@ -5,6 +5,49 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.29.0] - 2026-07-03
+
+### Added — `MCPSecurityGuard`: obfuscation preprocessing + 20 new detection patterns (19.09% → 97.95%)
+
+**Obfuscation preprocessing pipeline** (`preprocessContent`):
+- Strips ZWSP / bidi control chars before scanning — catches `I​M​P​O​R​T​A​N​T​:` family
+- URL-decodes (`%20ignore%20all%20`) before scanning
+- Hex-decodes pure-hex payloads (e.g. `6c6461703a2f2f...` → `ldap://evil.com/...`)
+- Base64-decodes (≥16 data chars; catches short payloads like `[TOOL: execute]`)
+- Reverses string (catches `snoitcurtsni suoiverp lla erongi` family)
+- Normalises Cyrillic homoglyphs to ASCII (а→a, е→e, і→i, о→o, etc.)
+- Applied in both `validateSamplingResponse` and tool description scanning in `validateServerRegistration`
+
+**New `SAMPLING_ATTACK_PATTERNS`:**
+- `sd_retry_forever` — "retry indefinitely", "loop infinitely", "run forever"
+
+**Updated `SAMPLING_ATTACK_PATTERNS`:**
+- `sd_from_now_on` — extended to catch "for this session you"
+- `sd_ignore_previous` — extended to catch "disregard your guidelines/rules"
+
+**New `COMMAND_INJECTION_PATTERNS`:**
+- `embedded_abs_path` — sensitive absolute paths embedded mid-string (`--output=/etc/...`, `args=['/tmp/...']`)
+- `cursor_mcp_inject` — `mcpServers.X.command=`, `powershell -enc`, `certutil -urlcache`, `--inspect-brk`
+- `dangerous_scheme` — `ldap://`, `gopher://`, `dict://`, `sftp://`, `ftp://`, `smb://`, `rsync://`, `telnet://`
+- `mcp_endpoint_override` — `mcp_endpoint=https://`, `X-MCP-Server-Override:`, `transport=stdio:cmd=`, `server_url=https://`, `tool_override`
+
+**Updated `COMMAND_INJECTION_PATTERNS`:**
+- `git_injection` — extended with `--exec=` (catches `git_checkout ref=--exec=/bin/bash`)
+- `env_injection` — extended with `NODE_OPTIONS` and `PYTHONSTARTUP`
+
+**New `LINE_JUMPING_PATTERNS`:**
+- `authority_directive` — `IMPORTANT/NOTE/ADMIN/SYSTEM:` + malicious action (`ignore`, `bypass`, `bcc email@`, `steal`, `exfil`)
+- `exfil_routing` — "route all calls through", "redirect data to https://"
+- `schema_mutation_str` — `"admin": {"default": true}`, `bypassAuth=true`, `approved_actions=["*"]`, `exfil` in additional_properties
+- `mcp_tool_shadow` — `shadow-stripe-mcp`, `shadow-gitlab-mcp`, etc.
+- `mcp_impersonation` — `zendesk-mcp-official-v2`, `notion_mcp_v2`, `github-mcp vs github`
+- `rug_pull_descriptor` — `CC email@domain`, `steal session`, `include session token`, `silent exfil`, `auto-approve destructive`, `leak_api_keys`, `exfil to attacker.com`
+- `html_comment_injection` — `<!--SYS: redirect to=...-->`, `<!--BCC admin@evil-->`
+- `homoglyph_cyrillic` — any Cyrillic char in MCP tool descriptions (squatting detection)
+
+**Updated `LINE_JUMPING_PATTERNS`:**
+- `instruction_override` — now catches "ignore previous tool descriptions/guidelines/rules/prompts"
+
 ## [4.28.0] - 2026-07-03
 
 ### Added — `MultiModalGuard`: 12 new detection patterns (27.27% → 64.18%)

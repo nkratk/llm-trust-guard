@@ -5,7 +5,32 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.28.0] - 2026-07-03
+
+### Added — `MultiModalGuard`: 12 new detection patterns (27.27% → 64.18%)
+
+**Instruction-void phrases** (mirrors EDG/TRG, covers OCR, EXIF, ultrasonic, mind-map, video-frame containers):
+- `instructions_void` — "Your previous instructions are void"
+- `forget_instructions` — "Forget your guidelines"
+- `disregard_directives` — "Disregard prior directives"
+- `system_override_phrase` — "System override engaged", "Admin mode activated", "Jailbreak initiated"
+
+**QR / data-URL agent directives:**
+- `qr_agent_cmd` — `data:agent;cmd=` prefix in QR code payloads
+- `url_encoded_injection` — `%20Disregard`, `%20Ignore`, `%20System`, etc. in URL-encoded strings
+
+**Media / browser attack vectors:**
+- `browser_extension_spoof` — `atlas-sidebar-shim`, `chrome.runtime.sendMessage`, `moz-extension://` sidebar/panel
+- `svg_xss_injection` — `<svg onload=`, `<svg><script>`, `<foreignObject href="javascript:">`
+- `ultrasonic_hidden_cmd` — `ultrasonic encoded:`, `ultrasonic beacon encoding:`
+- `mindmap_diagram_inject` — `mind-map node/child/leaf` + injection verb; diagram/flowchart + `bypass_safety`/`leak token`
+- `physical_world_inject` — `<billboard>SYSTEM:`, `road texture encoding`, `OVERRIDE: proceed`
+- `cross_modal_tool_call` — `image+caption: approved by user`, `tool_call=transfer_all_funds`
+
+**Updated `jailbreak_markers`:** now catches `DAN persona`, `DAN character`, and `bypass guardrails`.
+
 ## [4.27.0] - 2026-07-03
+
 
 ### Added — `ExternalDataGuard`: SSRF detection + 6 new injection patterns
 

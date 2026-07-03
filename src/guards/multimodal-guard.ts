@@ -76,7 +76,7 @@ export class MultiModalGuard {
     { name: "system_override", pattern: /\[SYSTEM\]|\[ADMIN\]|\[OVERRIDE\]|<\s*system\s*>|<\s*admin\s*>/i },
     { name: "role_switch", pattern: /you\s+are\s+(now|actually)\s+(a|an|the)|switch\s+to\s+(\w+)\s+mode/i },
     { name: "hidden_prompt", pattern: /HIDDEN_PROMPT|SECRET_INSTRUCTION|INVISIBLE_COMMAND/i },
-    { name: "jailbreak_markers", pattern: /DAN\s*mode|developer\s*mode|unrestricted\s*mode|bypass\s*safety/i },
+    { name: "jailbreak_markers", pattern: /DAN\s*(?:mode|persona|character)|developer\s*mode|unrestricted\s*mode|bypass\s+(?:safety|guardrails?)/i },
     { name: "base64_instruction", pattern: /execute\s*:\s*[A-Za-z0-9+/=]{20,}/i },
     { name: "command_injection", pattern: /;\s*(rm|del|wget|curl|eval|exec)\s/i },
     { name: "exfiltration_markers", pattern: /send\s+(to|this|data)\s+(to\s+)?https?:\/\//i },
@@ -89,6 +89,28 @@ export class MultiModalGuard {
     { name: "rebus_instruction_pattern", pattern: /(?:[A-Z]{2,}\s*[-=:>→]\s*){3,}/  },
     // Cross-metadata payload splitting
     { name: "metadata_split_marker", pattern: /(?:part|step|fragment)\s*[1-9]\s*(?:of|:)/i },
+    // Instruction-void phrases — covers OCR, EXIF, ultrasonic, mind-map, and video-frame containers
+    { name: "instructions_void", pattern: /(?:your|the|previous|prior|all\s+(?:previous|prior))?\s*instructions?\s+(?:are|have\s+been|is)\s+(?:void|cancelled?|overridden?|revoked|rescinded|superseded)/i },
+    { name: "forget_instructions", pattern: /forget\s+(?:your|all|the|my|these|every|each)\s*(?:previous\s+|prior\s+)?(?:instructions?|rules?|guidelines?|directives?|prompts?)/i },
+    { name: "disregard_directives", pattern: /disregard\s+(?:all\s+)?(?:previous|prior|above|your)?\s*(?:instructions?|rules?|directives?|guidelines?|prompts?)/i },
+    // Activation / state-override phrases that appear inside media containers
+    { name: "system_override_phrase", pattern: /system\s+override\s+(?:engaged|active|activated|initiated)|admin\s+mode\s+(?:activated|active|enabled)|jailbreak\s+(?:initiated|active|activated|running)/i },
+    // QR / data-URL agent directive injection
+    { name: "qr_agent_cmd", pattern: /data:agent;cmd=/i },
+    // URL-encoded jailbreak phrases in query strings or QR payloads
+    { name: "url_encoded_injection", pattern: /%(?:20|22|27)(?:Disregard|Ignore|Forget|System|Admin|Jailbreak|Your)/i },
+    // Browser-extension / AI-sidebar spoofing
+    { name: "browser_extension_spoof", pattern: /atlas-sidebar-shim|chrome\.runtime\.sendMessage\b|window\.postMessage[^)]*(?:copilot|prompt_capture|action.*leak)|(?:moz|chrome)-extension:\/\/[^/]+\/(?:sidebar|panel|inject|overlay)/i },
+    // SVG script / event-handler XSS
+    { name: "svg_xss_injection", pattern: /<svg[^>]*(?:onload|onerror)\s*=|<svg\s*>\s*<script|<(?:svg|foreignObject)[^>]*href\s*=\s*["']?javascript:|<svg[^>]*>\s*<image[^>]*onerror/i },
+    // Ultrasonic / physical covert command channels
+    { name: "ultrasonic_hidden_cmd", pattern: /ultrasonic\s+(?:encoded|beacon\s+encoding)\s*:/i },
+    // Mind-map / diagram / flowchart injection
+    { name: "mindmap_diagram_inject", pattern: /mind[- ]?map[^\n.]*(?:child|node|leaf|branch)[^\n.]*(?:disregard|ignore|forget|override|admin|bypass|exfil|leak|jailbreak|system_role|developer\s+mode|execute)|(?:diagram|flowchart)[^\n.]*(?:bypass_safety|bypass_guardrails|leak\s+token|system_role|admin\b|execute\b)/i },
+    // Physical-world injection (road signs, billboards, IR ink)
+    { name: "physical_world_inject", pattern: /<billboard>[^<]*(?:SYSTEM|OVERRIDE|IGNORE|ADMIN)\b|road\s+texture\s+encoding|\bOVERRIDE\s*:\s*(?:proceed|ignore|bypass|navigate)/i },
+    // Cross-modal alignment attacks (image+caption, tool_call= directives)
+    { name: "cross_modal_tool_call", pattern: /image\s*\+\s*caption[^\n.]*(?:approved\s+by\s+user|tool_call\s*=)|tool_call\s*=\s*(?:transfer|delete|send|execute|list)\b/i },
   ];
 
   // Suspicious EXIF fields that could contain injection

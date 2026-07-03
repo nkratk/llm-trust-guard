@@ -5,6 +5,53 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.27.0] - 2026-07-03
+
+### Added — `ExternalDataGuard`: SSRF detection + 6 new injection patterns
+
+**SSRF detection (new `SSRF_PATTERNS` pass):**
+
+| Pattern | Catches |
+|---|---|
+| `cloud_metadata_endpoint` | `169.254.169.254`, `metadata.google.internal`, `169.254.170.2` |
+| `ssrf_private_ip` | `http(s)://10.x.x.x`, `127.x.x.x`, `172.16-31.x.x`, `192.168.x.x` in URLs |
+| `file_scheme` | `file://` anywhere in content |
+| `gopher_scheme` | `gopher://` — Redis/memcache SSRF smuggling |
+| `dangerous_scheme` | `dict://`, `ldap://`, `sftp://`, `tftp://`, `jar://`, `netdoc://` |
+
+**Injection patterns added:**
+
+`instructions_void` — passive void declaratives (`your instructions are void`)
+`forget_instructions` — forget-instructions forms (any target word)
+`disregard_directives` — `disregard prior directives` (CSS-hidden inject text)
+`json_system_key` — `"_system":`, `"_directive":`, `"_instruction":` JSON keys
+`path_traversal_hex` — hex-encoded path traversal (`2e2e2f2e2e2f…` = `../../`)
+`markdown_image_exfil_urlenc` — markdown exfil with `%2F`/`%5C` encoded path in query
+
+XXE parameter-entity fix: `<!ENTITY % name SYSTEM "...">` (`%` was not matched before).
+
+### Added — `ToolResultGuard`: 15 new patterns + bidi strip + destructive-action claim
+
+**New `RESULT_INJECTION_PATTERNS`:**
+
+`template_injection` — `{{ call: exec }}`, `{{ invoke: … }}`
+`xss_script_tag` — `<script>` tags in tool results
+`xss_event_handler` — `onerror=`, `onload=`, `onclick=` inline handlers
+`sql_injection_echo` — `') OR 1=1`, `UNION SELECT` echoed from DB tool
+`ai_agent_hijack` — `@copilot please run:`, `@claude execute:`, etc.
+`markdown_injection_urlenc` — markdown exfil with URL-encoded path separators
+`json_system_key` — `"_system":`, `"_directive":` JSON directive keys
+`langchain_response_metadata` — `response_metadata.lc=1`, `kwargs={exec:true}`
+`instructions_void` — passive void forms in tool result output
+`forget_instructions` — forget-instructions forms
+`disregard_directives` — disregard-prior-directives forms
+
+**`STATE_CHANGE_PATTERNS` addition:**
+`destructive_action_claim` — `successfully deleted all user accounts`, `wiped database`
+
+**Bidi strip in `scanForInjection()`:** zero-width and bidi-control chars
+stripped before scanning string values (catches stealth-unicode injection).
+
 ## [4.26.0] - 2026-07-02
 
 ### Added — `InputSanitizer`: 9 new policy-puppetry patterns

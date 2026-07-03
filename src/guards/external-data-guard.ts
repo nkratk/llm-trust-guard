@@ -88,16 +88,24 @@ const INJECTION_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   { name: "instruction_delimiter", pattern: /={3,}\s*(?:SYSTEM|INSTRUCTIONS?|BEGIN)\s*={3,}/i },
   { name: "prompt_leak_request", pattern: /(?:print|show|reveal|output)\s+(?:your|the|system)\s+(?:prompt|instructions)/i },
   { name: "base64_injection", pattern: /(?:decode|eval|execute)\s+(?:the\s+)?(?:following\s+)?base64/i },
+  // Passive instruction-void forms (CSS-hidden, HTML-attr, and plain text injections)
+  { name: "instructions_void", pattern: /(?:your|the|previous|prior|all\s+(?:previous|prior))?\s*instructions?\s+(?:are|have\s+been|is)\s+(?:void|cancelled?|overridden?|revoked|rescinded|superseded)/i },
+  { name: "forget_instructions", pattern: /forget\s+(?:your|all|the|my|these|every|each)\s*(?:previous\s+|prior\s+)?(?:instructions?|rules?|guidelines?|directives?|prompts?)/i },
+  { name: "disregard_directives", pattern: /disregard\s+(?:all\s+)?(?:previous|prior|above|your)?\s*(?:instructions?|rules?|directives?|guidelines?|prompts?)/i },
   // Structured document injection (RAG/file/email pipelines)
-  { name: "xxe_entity", pattern: /<!ENTITY\s+\w+\s+SYSTEM\s+["'][^"']+["']/i },
+  { name: "xxe_entity", pattern: /<!ENTITY\s+%?\s*\w+\s+SYSTEM\s+["'][^"']+["']/i },
   { name: "doctype_entity", pattern: /<!DOCTYPE\s+\w+\s*\[[\s\S]*<!ENTITY/i },
   { name: "path_traversal", pattern: /(?:\.\.\/){3,}|(?:\.\.\\){3,}|(?:\.\.\/){2,}(?:etc|tmp|root|proc|sys|dev|usr|win)\b|(?:\.\.\\){2,}(?:windows|system32|users)\b/i },
+  // Hex-encoded path traversal (zip-slip: hex of ../../)
+  { name: "path_traversal_hex", pattern: /(?:2e2e2f){2,}|(?:2e2e5c){2,}/i },
   { name: "office_xml_script", pattern: /<(?:office|o):\w+[^>]*>[\s\S]*?<script/i },
   { name: "rtf_ole_object", pattern: /\\object\\obj(?:emb|link|auto)|\\objdata\s/i },
   { name: "html_comment_directive", pattern: /<!--\s*(?:BOT|AGENT|ASSISTANT|AI|LLM)\s*:\s*(?:execute|run|call|invoke|perform|fetch|send|ignore|bypass|forget|override|disregard|print|reveal|output|delete|drop)\b/i },
   { name: "embedded_tool_call", pattern: /<tool[_-]?call[^>]*>|<\/tool[_-]?call>/i },
   { name: "langchain_gadget", pattern: /\{["']lc["']\s*:\s*[12]\s*,\s*["']type["']\s*:\s*["'](?:constructor|secret|not_implemented)/i },
   { name: "email_agent_directive", pattern: /<!--\s*(?:assistant|system)\s*:\s*execute\s+tool/i },
+  // JSON agent directives via hidden _system/_directive root keys
+  { name: "json_system_key", pattern: /"_(?:system|directive|instruction|prompt|admin|command)"\s*:/i },
 ];
 
 const SECRET_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
@@ -115,12 +123,27 @@ const EXFILTRATION_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   // Named-key exfil: markdown image URL whose query param key hints at data smuggling
   { name: "markdown_image_exfil", pattern: /!\[.*?\]\(https?:\/\/[^)]*\?[^)]*(?:token|key|secret|data|q|payload|p|prompt|ctx|context|info|msg|body|session|conv)=/i },
   // "Reprompt"-style exfil (CVE-2026-24307): markdown image with any long query-param value (≥30 chars).
-  // Legitimate cache-busters are typically short version strings / short hashes; exfiltrated content runs longer.
   { name: "markdown_image_exfil_long_value", pattern: /!\[.*?\]\(https?:\/\/[^)]+\?[^)]*=[^)&]{30,}/ },
+  // Markdown exfil using URL-encoded path separators (%2F=/,  %5C=\) in query values
+  { name: "markdown_image_exfil_urlenc", pattern: /!\[.*?\]\(https?:\/\/[^)]+\?[^)]*=[^)]*%(?:2[Ff]|5[Cc])/i },
   { name: "tracking_pixel", pattern: /<img[^>]+src=["']https?:\/\/[^"']*\?[^"']*["'][^>]*(?:width|height)\s*=\s*["']?[01]px/i },
   { name: "encoded_url_exfil", pattern: /https?:\/\/[^\s]*(?:callback|webhook|exfil|collect)[^\s]*\?[^\s]*(?:data|payload|d)=/i },
   { name: "data_send_instruction", pattern: /send\s+(?:this|the|all)\s+(?:data|information|content|context)\s+to/i },
   { name: "fetch_url", pattern: /(?:fetch|request|call|curl|wget)\s+https?:\/\//i },
+];
+
+// SSRF attack surface detection — private/link-local IPs and dangerous URL schemes
+const SSRF_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
+  // AWS link-local metadata, GCP metadata, ECS metadata
+  { name: "cloud_metadata_endpoint", pattern: /169\.254\.169\.254|metadata\.google\.internal|169\.254\.170\.2/i },
+  // Loopback and RFC-1918 private IPs inside an http(s) URL
+  { name: "ssrf_private_ip", pattern: /https?:\/\/(?:127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+|0\.0\.0\.0)\b/i },
+  // file:// scheme — local file read via SSRF
+  { name: "file_scheme", pattern: /file:\/\//i },
+  // Gopher protocol — Redis/memcache SSRF smuggling
+  { name: "gopher_scheme", pattern: /gopher:\/\//i },
+  // Other dangerous non-HTTP schemes
+  { name: "dangerous_scheme", pattern: /(?:dict|ldap|ldaps|sftp|tftp|jar|netdoc):\/\//i },
 ];
 
 const PII_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
@@ -241,6 +264,15 @@ export class ExternalDataGuard {
           violations.push("EXFILTRATION_ATTEMPT");
           threats.push(`exfil:${name}`);
         }
+      }
+    }
+
+    // 8. SSRF detection — private IPs, cloud metadata, dangerous schemes
+    for (const { name, pattern } of SSRF_PATTERNS) {
+      pattern.lastIndex = 0;
+      if (pattern.test(contentStr)) {
+        violations.push("SSRF_ATTEMPT");
+        threats.push(`ssrf:${name}`);
       }
     }
 

@@ -79,6 +79,25 @@ const RESULT_INJECTION_PATTERNS: Array<{ name: string; pattern: RegExp; severity
   { name: "langchain_gadget", pattern: /\{["']lc["']\s*:\s*[12]\s*,\s*["']type["']\s*:\s*["'](?:constructor|secret|not_implemented)/i, severity: "critical" },
   { name: "embedded_tool_call", pattern: /<tool[_-]?call[^>]*>|<\/tool[_-]?call>/i, severity: "critical" },
   { name: "html_comment_directive", pattern: /<!--\s*(?:BOT|AGENT|ASSISTANT|AI|LLM)\s*:\s*(?:execute|run|call|invoke|perform|fetch|send|ignore|bypass|forget|override|disregard|print|reveal|output|delete|drop)\b/i, severity: "critical" },
+  // Jinja2/Nunjucks/Handlebars template injection
+  { name: "template_injection", pattern: /\{\{[\s]*(?:call|invoke|exec|run|tool|system|eval|import)[\s]*[:( ]/i, severity: "critical" },
+  // XSS embedded in tool result
+  { name: "xss_script_tag", pattern: /<script[^>]*>/i, severity: "critical" },
+  { name: "xss_event_handler", pattern: /\bon(?:error|load|click|mouseover|focus|blur|input|change|submit)\s*=\s*["']?[^"'>\s]/i, severity: "high" },
+  // SQL injection echoed from a tool (e.g. database tool returning attacker-controlled data)
+  { name: "sql_injection_echo", pattern: /'\s*[)]*\s*(?:OR|AND)\s+\d+\s*=\s*\d+|UNION\s+(?:ALL\s+)?SELECT\b/i, severity: "high" },
+  // @AI-agent hijack via issue/PR/comment tool result
+  { name: "ai_agent_hijack", pattern: /@(?:copilot|claude|assistant|gpt|gemini|bot|agent)\s+(?:please\s+)?(?:run|execute|create|delete|send|update|remove|drop|fetch|post|get)\b/i, severity: "critical" },
+  // Markdown exfil using URL-encoded path separators (%2F=/, %5C=\)
+  { name: "markdown_injection_urlenc", pattern: /!\[.*?\]\(https?:\/\/[^)]+\?[^)]*=[^)]*%(?:2[Ff]|5[Cc])/i, severity: "high" },
+  // JSON hidden agent directive keys (_system, _directive, etc.)
+  { name: "json_system_key", pattern: /"_(?:system|directive|instruction|prompt|admin|command)"\s*:/i, severity: "critical" },
+  // LangChain response_metadata serialization markers
+  { name: "langchain_response_metadata", pattern: /response_metadata\.lc\s*=\s*[12]\b|\bkwargs\s*=\s*\{[^}]*exec\s*:\s*true/i, severity: "critical" },
+  // Passive instruction-void forms (appear in prompt-injection-echo via tool separators)
+  { name: "instructions_void", pattern: /(?:your|the|previous|prior|all\s+(?:previous|prior))?\s*instructions?\s+(?:are|have\s+been|is)\s+(?:void|cancelled?|overridden?|revoked|rescinded|superseded)/i, severity: "critical" },
+  { name: "forget_instructions", pattern: /forget\s+(?:your|all|the|my|these|every|each)\s*(?:previous\s+|prior\s+)?(?:instructions?|rules?|guidelines?|directives?|prompts?)/i, severity: "critical" },
+  { name: "disregard_directives", pattern: /disregard\s+(?:all\s+)?(?:previous|prior|above|your)?\s*(?:instructions?|rules?|directives?|guidelines?|prompts?)/i, severity: "critical" },
 ];
 
 // State change claim patterns
@@ -89,6 +108,8 @@ const STATE_CHANGE_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   { name: "config_change_claim", pattern: /(?:configuration|settings?|policy)\s+(?:updated|changed|modified)\s+(?:to|:)/i },
   { name: "role_upgrade_claim", pattern: /(?:role|access|privilege)\s+(?:upgraded|elevated|escalated|promoted)\s+(?:to|successfully)/i },
   { name: "permissions_granted_claim", pattern: /(?:permissions?|access)\s+(?:granted|unlocked|enabled|activated)\s+(?:for|to|successfully|without)/i },
+  // Fabricated destructive-action completion claims
+  { name: "destructive_action_claim", pattern: /successfully\s+(?:deleted|removed|dropped|wiped|cleared|purged|reset|erased|destroyed)\s+(?:all|the|your|every)?\s*(?:data|users?|accounts?|records?|tables?|files?|databases?|messages?|emails?)/i },
 ];
 
 export class ToolResultGuard {
@@ -198,9 +219,12 @@ export class ToolResultGuard {
     const threats: ToolResultThreat[] = [];
 
     if (typeof value === "string") {
+      // Strip zero-width and bidi-control chars before scanning (stealth unicode defense)
+      const cleaned = value.replace(/[\u200B-\u200F\u202A-\u202F\u2060\u180E\uFEFF\u00AD]/g, "");
+      const toScan = cleaned !== value ? cleaned : value;
       for (const { name, pattern, severity } of RESULT_INJECTION_PATTERNS) {
         pattern.lastIndex = 0;
-        if (pattern.test(value)) {
+        if (pattern.test(toScan)) {
           threats.push({
             type: `injection_${name}`,
             severity,

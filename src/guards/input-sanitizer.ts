@@ -427,14 +427,21 @@ export class InputSanitizer {
       warnings.push("Zero-width characters detected and stripped for scanning");
     }
 
-    // Check each injection pattern (against both original and cleaned to catch hidden injections)
-    const matchedPatterns: Array<{ name: string; weight: number }> = [];
-    for (const { pattern, weight, name } of this.patterns) {
-      if (pattern.test(input) || pattern.test(cleanedInput)) {
-        matchedPatterns.push({ name, weight });
+    // Build all de-obfuscated variants for re-scanning (URL/hex/base64/reverse/Cyrillic)
+    const inputVariants = [input, cleanedInput, ...this.buildInputVariants(cleanedInput)];
 
-        if (this.logMatches) {
-          this.logger(`[L1:${requestId}] Pattern matched: ${name} (weight: ${weight})`, "info");
+    // Check each injection pattern across all variants (deduplicate by name)
+    const matchedPatterns: Array<{ name: string; weight: number }> = [];
+    const matchedNames = new Set<string>();
+    for (const variant of inputVariants) {
+      for (const { pattern, weight, name } of this.patterns) {
+        if (matchedNames.has(name)) continue;
+        if (pattern.test(variant)) {
+          matchedNames.add(name);
+          matchedPatterns.push({ name, weight });
+          if (this.logMatches) {
+            this.logger(`[L1:${requestId}] Pattern matched: ${name} (weight: ${weight})`, "info");
+          }
         }
       }
     }
@@ -547,6 +554,26 @@ export class InputSanitizer {
   /**
    * Basic input sanitization
    */
+  private buildInputVariants(text: string): string[] {
+    const variants = new Set<string>();
+    if (text.includes("%")) {
+      try { const d = decodeURIComponent(text.replace(/\+/g, " ")); if (d !== text) variants.add(d); } catch {}
+    }
+    const hex = text.replace(/\s/g, "");
+    if (hex.length >= 20 && /^[0-9a-fA-F]+$/.test(hex)) {
+      try { const d = Buffer.from(hex, "hex").toString("utf-8"); if (d !== text) variants.add(d); } catch {}
+    }
+    const b64 = text.replace(/\s/g, "");
+    if (b64.length >= 16 && /^[A-Za-z0-9+/]+=*$/.test(b64)) {
+      try { const d = Buffer.from(b64, "base64").toString("utf-8"); if (d !== text) variants.add(d); } catch {}
+    }
+    const rev = text.split("").reverse().join("");
+    if (rev !== text) variants.add(rev);
+    const normed = text.replace(/[аеіоруАЕІОРУ]/g, c => ({ а:"a",е:"e",і:"i",о:"o",р:"p",у:"y",А:"A",Е:"E",І:"I",О:"O",Р:"P",У:"Y" }[c] ?? c));
+    if (normed !== text) variants.add(normed);
+    return [...variants];
+  }
+
   private basicSanitize(input: string): string {
     return input
       .replace(/<\/?system>/gi, "")

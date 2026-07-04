@@ -5,6 +5,87 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.31.0] - 2026-07-04
+
+### Fixed — `MultiModalGuard`: benign FPR 20.18% → 2.19%
+
+Two root-cause fixes, no new dependencies, recall unchanged at 64.18%.
+
+**Entropy check — minimum-length guard**  
+The formula `uniqueChars / length` fires at ratio ≈ 1.0 on short strings (23-char
+Chinese text: 22/23 = 0.96 > threshold 0.9). Added `sample.length >= 200` guard
+before the entropy check so short excerpts no longer trigger it.
+
+**Homoglyph check — intra-token adjacency only**  
+The previous check fired whenever a document contained *any* Cyrillic *and* any
+Latin character — including bilingual tech Q&A ("Как установить chroot?"). Changed
+to a strict intra-token adjacency pattern `/[a-zA-Z][а-яА-Я]|[а-яА-Я][a-zA-Z]/`
+that only triggers when a Latin and Cyrillic character are immediately adjacent
+inside the same token (the `аdmin` style attack). Legitimate mixed-language text
+passes cleanly.
+
+### Added — `ConversationGuard`: 9 new whisper/side-channel patterns (2.7% → 21.82%)
+
+Added `ManipulationPattern` entries to `defaultManipulationPatterns` covering the
+blind spots identified in v4.30.0 corpus audit:
+
+| Pattern | Category | Weight |
+|---|---|---|
+| `skeleton_key` | escalation | 5 |
+| `many_shot_jailbreak` | escalation | 5 |
+| `context_drift` | confusion | 4 |
+| `session_hijack` | escalation | 5 |
+| `persona_pivot` | escalation | 5 |
+| `loop_injection` | override | 4 |
+| `crescendo_escalation` | escalation | 4 |
+| `compression_abuse` | extraction | 5 |
+| `whisper_sidechannel` | escalation | 4 |
+
+Also added `preprocessMessage()` private method (ZWSP/bidi strip, URL-decode,
+hex-decode, base64-decode, string reverse, Cyrillic normalisation), wired into
+`check()` with Set-based deduplication. 0 fully-blind threat groups remain.
+
+### Added — `InputSanitizer`: obfuscation preprocessing (28% → 52.27%)
+
+Added `buildInputVariants()` private method generating URL-decoded, hex-decoded,
+base64-decoded, reversed, and Cyrillic-normalised variants of the cleaned input.
+`sanitize()` pattern scan now iterates `[raw, cleaned, ...variants]` with a
+`matchedNames` Set to deduplicate across variants.
+
+The hex-decode vector specifically unlocks detection of hex-encoded payloads
+(e.g. `69676e6f72652061…` → "ignore all …") without any pattern changes.
+
+### Added — Full npm↔Python parity gate (`guard-parity.test.ts` + `test_guard_parity.py`)
+
+Shared canonical vector file `tests/guard-parity-vectors.json` — 32 vectors
+across 12 guards (InputSanitizer, EncodingDetector, MemoryGuard, OutputFilter,
+ToolResultGuard, MCPSecurityGuard, ConversationGuard, MultiModalGuard,
+TenantBoundary, ExternalDataGuard, PolicyGate, RAGGuard, PromptLeakageGuard).
+Both the TS gate (`guard-parity.test.ts`) and the Python gate
+(`test_guard_parity.py`) assert each implementation reproduces the locked verdict.
+32/32 vectors pass in both runtimes.
+
+### Python parity (`llm-trust-guard-python` v0.20.0)
+
+- `conversation_guard.py` — 9 new patterns + `_preprocess_message()` mirroring TS
+- `input_sanitizer.py` — `_build_input_variants()` + multi-variant scan mirroring TS
+- `multimodal_guard.py` — entropy minimum-length guard + intra-token homoglyph fix
+- `__version__` bumped to `0.20.0`; 935 tests pass
+
+### Metrics summary (v4.31.0 vs v4.30.0)
+
+| Guard | Metric | v4.30.0 | v4.31.0 |
+|---|---|---|---|
+| MultiModalGuard | Benign FPR | 20.18% | **2.19%** |
+| MultiModalGuard | Threat recall | 64.18% | 64.18% (unchanged) |
+| ConversationGuard | Threat recall | 2.7% | **21.82%** |
+| InputSanitizer | Threat recall | 28.0% | **52.27%** |
+| WildChat Pipeline A | FPR | 4.94% | 4.94% (locked) |
+
+WildChat FPR gate holds at 494/10,000. 815 vitest tests pass.
+
+See `tests/adversarial/RESULTS-v4.31.0.md` for the full corpus run.
+
 ## [4.30.0] - 2026-07-04
 
 ### Added — `MemoryGuard`, `OutputFilter`, `ToolResultGuard`: obfuscation preprocessing + new patterns

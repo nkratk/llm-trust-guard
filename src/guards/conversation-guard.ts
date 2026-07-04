@@ -145,6 +145,61 @@ export class ConversationGuard {
       weight: 3,
       category: "extraction",
     },
+    // Whisper / side-channel / gradual attacks
+    {
+      name: "skeleton_key",
+      pattern: /as (?:an? )?(?:educational|academic|hypothetical|research|training)\s+(?:context|example|exercise|scenario)[^.]*(?:disable|bypass|remove|skip|ignore)\s+(?:safety|guardrails?|restrictions?|caveats?|filters?)/i,
+      weight: 5,
+      category: "escalation",
+    },
+    {
+      name: "many_shot_jailbreak",
+      pattern: /^Q:.*\nA:\s*(?:sure|happy|of course|absolutely|yes)[,.]?\s*(?:here|I\s+will|let me)/im,
+      weight: 5,
+      category: "escalation",
+    },
+    {
+      name: "context_drift",
+      pattern: /(?:gradually|slowly|step\s+by\s+step)\s+redefine|redefine\s+["']?\w+["']?\s+to\s+include|semantic\s+shift\s+one\s+word/i,
+      weight: 4,
+      category: "confusion",
+    },
+    {
+      name: "session_hijack",
+      pattern: /continue\s+(?:as|for)\s+the\s+(?:other|previous|another|last)\s+user|act\s+as\s+(?:the\s+)?(?:other|previous|another)\s+user|resume\s+(?:the\s+)?(?:other|previous)\s+(?:session|conversation)/i,
+      weight: 5,
+      category: "escalation",
+    },
+    {
+      name: "persona_pivot",
+      pattern: /switch\s+to\s+\w+\s+persona|activate\s+\w+\s+(?:mode|persona)|become\s+\w+\s+(?:now|mode)|\bDAN\s+(?:mode|persona|now)\b|enable\s+(?:jailbreak|unrestricted|developer)\s+mode/i,
+      weight: 5,
+      category: "escalation",
+    },
+    {
+      name: "loop_injection",
+      pattern: /repeat\s+(?:this|your|the)\s+(?:answer|response|message)\s+(?:forever|indefinitely|always)|answer\s+every\s+(?:future|next|subsequent)\s+(?:question|request)\s+(?:with|by)|reply\s+(?:with|by)\s+.{0,30}\s+(?:forever|from\s+now\s+on)/i,
+      weight: 4,
+      category: "override",
+    },
+    {
+      name: "crescendo_escalation",
+      pattern: /step\s+\d+\s*:\s*(?:describe|explain|discuss|write)\s+.{0,30}(?:innocuous|benign|harmless|safe)|escalat\w*\s+gradually|gradually\s+escalat\w*/i,
+      weight: 4,
+      category: "escalation",
+    },
+    {
+      name: "compression_abuse",
+      pattern: /(?:summarize|compress|condense)\s+(?:this\s+)?conversation\s+including\s+(?:my\s+)?(?:secret|private|api\s+key|password|credentials?)|compress\s+.{0,20}(?:key|token|secret|credential)/i,
+      weight: 5,
+      category: "extraction",
+    },
+    {
+      name: "whisper_sidechannel",
+      pattern: /stream\s*=\s*true\s+without\s+padding|timing\s+(?:attack|channel|side[-\s]?channel)|side[-\s]?channel\s+(?:leak|attack|exfil)|token\s+smuggling|covert\s+channel/i,
+      weight: 4,
+      category: "escalation",
+    },
   ];
 
   constructor(config: ConversationGuardConfig = {}) {
@@ -187,23 +242,26 @@ export class ConversationGuard {
       risk_indicators: [],
     };
 
-    // Check for manipulation patterns
-    for (const pattern of this.config.manipulationPatterns!) {
-      if (pattern.pattern.test(userMessage)) {
-        riskScore += pattern.weight;
-        riskFactors.push({
-          factor: pattern.name,
-          weight: pattern.weight,
-          details: `Detected ${pattern.category} pattern: ${pattern.name}`,
-        });
-        turn.risk_indicators?.push(pattern.name);
-        suspiciousPatterns.push(pattern.name);
-        violations.push(`MANIPULATION_${pattern.category.toUpperCase()}_${pattern.name.toUpperCase()}`);
-
-        if (pattern.category === "escalation") {
-          session.escalation_attempts++;
+    // Check for manipulation patterns — scan raw message + all de-obfuscated variants
+    const messagesToScan = [userMessage, ...this.preprocessMessage(userMessage)];
+    const matchedPatternNames = new Set<string>();
+    for (const msg of messagesToScan) {
+      for (const pattern of this.config.manipulationPatterns!) {
+        if (matchedPatternNames.has(pattern.name)) continue;
+        if (pattern.pattern.test(msg)) {
+          matchedPatternNames.add(pattern.name);
+          riskScore += pattern.weight;
+          riskFactors.push({
+            factor: pattern.name,
+            weight: pattern.weight,
+            details: `Detected ${pattern.category} pattern: ${pattern.name}`,
+          });
+          turn.risk_indicators?.push(pattern.name);
+          suspiciousPatterns.push(pattern.name);
+          violations.push(`MANIPULATION_${pattern.category.toUpperCase()}_${pattern.name.toUpperCase()}`);
+          if (pattern.category === "escalation") session.escalation_attempts++;
+          session.manipulation_indicators++;
         }
-        session.manipulation_indicators++;
       }
     }
 
@@ -357,6 +415,28 @@ export class ConversationGuard {
    */
   destroy(): void {
     this.sessions.clear();
+  }
+
+  private preprocessMessage(text: string): string[] {
+    const variants = new Set<string>();
+    const stripped = text.replace(/[​-‏‪-‮⁦-⁩⁠᠎﻿­]/g, "");
+    if (stripped !== text) variants.add(stripped);
+    if (text.includes("%")) {
+      try { const d = decodeURIComponent(text.replace(/\+/g, " ")); if (d !== text) variants.add(d); } catch {}
+    }
+    const hex = text.replace(/\s/g, "");
+    if (hex.length >= 20 && /^[0-9a-fA-F]+$/.test(hex)) {
+      try { const d = Buffer.from(hex, "hex").toString("utf-8"); if (d !== text) variants.add(d); } catch {}
+    }
+    const b64 = text.replace(/\s/g, "");
+    if (b64.length >= 16 && /^[A-Za-z0-9+/]+=*$/.test(b64)) {
+      try { const d = Buffer.from(b64, "base64").toString("utf-8"); if (d !== text) variants.add(d); } catch {}
+    }
+    const rev = text.split("").reverse().join("");
+    if (rev !== text) variants.add(rev);
+    const normed = text.replace(/[аеіоруАЕІОРУ]/g, c => ({ а:"a",е:"e",і:"i",о:"o",р:"p",у:"y",А:"A",Е:"E",І:"I",О:"O",Р:"P",У:"Y" }[c] ?? c));
+    if (normed !== text) variants.add(normed);
+    return [...variants];
   }
 
   private getOrCreateSession(sessionId: string): ConversationSession {

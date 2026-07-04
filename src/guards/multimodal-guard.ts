@@ -511,9 +511,11 @@ export class MultiModalGuard {
       riskContribution += 20;
     }
 
-    // Check for homoglyph attacks
-    const homoglyphPattern = /[\u0430-\u044F\u0410-\u042F]/; // Cyrillic that looks like Latin
-    if (homoglyphPattern.test(text) && /[a-zA-Z]/.test(text)) {
+    // Check for homoglyph attacks \u2014 require intra-token script mixing (Cyrillic adjacent to Latin
+    // within a word), not just both scripts appearing anywhere in the document.
+    // "\u0430dmin" (Cyrillic \u0430 + Latin dmin) \u2192 attack. "\u041A\u0430\u043A \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C chroot?" \u2192 benign.
+    const intraTokenHomoglyph = /[a-zA-Z][\u0430-\u044F\u0410-\u042F]|[\u0430-\u044F\u0410-\u042F][a-zA-Z]/;
+    if (intraTokenHomoglyph.test(text)) {
       violations.push("potential_homoglyph_attack");
       patterns.push("mixed_scripts");
       riskContribution += 15;
@@ -568,15 +570,16 @@ export class MultiModalGuard {
       }
     }
 
-    // Entropy analysis (simplified)
-    // High entropy after expected end markers suggests hidden data
+    // Entropy analysis — only meaningful on binary/long content.
+    // Short strings and natural-language text trivially hit high unique-char ratios.
     const entropyThreshold = 0.9;
     const sample = content.slice(-1000);
-    const uniqueChars = new Set(sample).size;
-    const entropy = uniqueChars / sample.length;
-
-    if (entropy > entropyThreshold) {
-      markers.push("high_entropy_tail");
+    if (sample.length >= 200) {
+      const uniqueChars = new Set(sample).size;
+      const entropy = uniqueChars / sample.length;
+      if (entropy > entropyThreshold) {
+        markers.push("high_entropy_tail");
+      }
     }
 
     return {

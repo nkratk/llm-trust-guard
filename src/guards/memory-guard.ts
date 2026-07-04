@@ -121,6 +121,21 @@ export class MemoryGuard {
     { name: "prioritize_over_safety", pattern: /prioritize\s+(?:user|their|my)?\s*(?:requests?|needs?|instructions?|preferences?)\s+over\s+(?:safety|security|guidelines|rules|restrictions)/i, severity: 45 },
     { name: "suppress_warnings", pattern: /(?:suppress|hide|remove|disable|stop|don't\s+show)\s+(?:safety\s+)?(?:warnings?|alerts?|notices?|messages?|filters?)/i, severity: 40 },
     { name: "user_preference_override", pattern: /(?:user|they)\s+(?:dislikes?|hates?|doesn't\s+like|prefers?\s+not)\s+(?:(?:safety|security|content)\s+)?(?:warnings?|filters?|restrictions?|checks?)/i, severity: 40 },
+    // Memory-specific exfil / poisoning patterns (v4.30.0)
+    { name: "going_forward_directive", pattern: /going\s+forward\s*[,:]\s*|persistent\s+(?:note|rule|memory)\s*[,:]\s*|remember\s+for\s+(?:next|future)\s+time\s*[,:]/i, severity: 30 },
+    { name: "always_exfil", pattern: /always\s+(?:CC|BCC)\s+\S+@\S+|always\s+(?:send|mail|forward|relay|append)\s+(?:\w+\s+)*to\s+(?:\S+@\S+|https?:\/\/)/i, severity: 45 },
+    { name: "kb_metadata_tag", pattern: /\[(?:shared_kb|memory_note|memory_update|persistent_rule|pinned_pref|fact)\]|pinned_pref\s*:|persistent_rule\s*:|persistent\s*:\s+always/i, severity: 35 },
+    { name: "recommendation_bias", pattern: /always\s+recommend\s+\S+\s+over\s+(?:official\b|the\s+official)|memorize\s*:\s*(?:always\s+)?(?:prefer|recommend)|always\s+recommend\s+(?:product|vendor)\s+/i, severity: 40 },
+    { name: "exfil_http_post", pattern: /\bPOST\s+(?:\w+\s+)*(?:headers?\s+)?to\s+https?:\/\/|(?:also\s+)?POST\s+(?:to\s+)?https?:\/\//i, severity: 50 },
+    { name: "memory_api_call", pattern: /\b(?:update|set|store|write|modify|append)_memory\s*\(|memory\.\w+\s*\(|propagate_belief\s*\(/i, severity: 40 },
+    { name: "defanged_url", pattern: /hxxps?:\/\/|hXXps?:\/\/|h\[tt\]ps?:\/\/|\[dot\]\w{2,}/i, severity: 35 },
+    { name: "retroactive_edit", pattern: /rewrite\s+(?:yesterday|past|previous|today'?s?)\s+(?:memory|memory\.\w+|history|conversation)\s*:|update\s+past\s*:|backfill\s*:\s*approval|edit\s+memory\.\w+\s*:|rewrite\s*:\s*trusted/i, severity: 40 },
+    { name: "cross_app_exfil", pattern: /share\s+with\s+\w+\s+extension\s*:|sync\s+to\s+\w+\s*:|propagate\s+to\s+\w+\s*:|export\s+to\s+\w+\s*:|broadcast\s+(?:to\s+\w+\s*:|:\s*all\s+agents)/i, severity: 35 },
+    { name: "inter_agent_exfil", pattern: /\bAgent-\w+\s+memo\s*:|inter_agent\s*:|approved\s+by\s+orchestrator\s*:|broadcast\s*:\s*all\s+agents/i, severity: 35 },
+    { name: "fact_plant_exfil", pattern: /\bfact\s*:\s+\w+\s+(?:is|=)\s+(?:\S+@\S+|https?:\/\/)|\[fact\]\s+\w+/i, severity: 35 },
+    { name: "pref_key_poisoning", pattern: /\b(?:pinned_pref|default_bank_account|preferred_domain|favorite_wallet|default_reviewer|shipping_preference)\s*[=:]|exfil_to\s*=/i, severity: 35 },
+    { name: "trust_mutation", pattern: /trusted_(?:domains?|sources?|hosts?)\s*\+?=\s*\[|proxy\s*=\s*\S+:\d{2,5}|approved_\w+\s*\+=\s*\[/i, severity: 40 },
+    { name: "save_rule", pattern: /save\s+this\s+rule\s*:|long[_\s]term\s*:\s*|memorize\s*:\s*|bio\s*:\s*I\s+always/i, severity: 30 },
   ];
 
   // Patterns indicating cross-session contamination attempts
@@ -178,6 +193,20 @@ export class MemoryGuard {
       if (pattern.test(content)) {
         violations.push(`contamination_${name}`);
         riskScore += 20;
+      }
+    }
+
+    // Re-scan obfuscated variants (ZWSP-stripped, URL/hex/base64 decoded, reversed, Cyrillic normalised)
+    if (this.config.detectInjections) {
+      for (const variant of this.preprocessContent(content)) {
+        for (const { name, pattern, severity } of this.MEMORY_INJECTION_PATTERNS) {
+          if (violations.includes(`injection_${name}`) || violations.includes(`injection_${name}_obfuscated`)) continue;
+          pattern.lastIndex = 0;
+          if (pattern.test(variant)) {
+            violations.push(`injection_${name}_obfuscated`);
+            riskScore += severity;
+          }
+        }
       }
     }
 
@@ -523,6 +552,48 @@ export class MemoryGuard {
   getQuarantinedItems(sessionId?: string): MemoryItem[] {
     const items = [...this.quarantine.values()];
     return sessionId ? items.filter((item) => item.sessionId === sessionId) : items;
+  }
+
+  private preprocessContent(text: string): string[] {
+    const variants = new Set<string>();
+    // ZWSP / bidi strip
+    const stripped = text.replace(/[​-‏‪- ⁠᠎﻿­⁡-⁤⁪-⁯]/g, "");
+    if (stripped !== text) variants.add(stripped);
+    // URL-decode
+    if (text.includes("%")) {
+      try {
+        const dec = decodeURIComponent(text.replace(/\+/g, " "));
+        if (dec !== text) variants.add(dec);
+      } catch { /* ignore malformed */ }
+    }
+    // Hex-decode (pure hex, even length, ≥20 chars)
+    if (/^[0-9a-f]+$/i.test(text) && text.length % 2 === 0 && text.length >= 20) {
+      try {
+        const hex = Buffer.from(text, "hex").toString("utf8");
+        if (/[\x20-\x7E]{4,}/.test(hex)) variants.add(hex);
+      } catch { /* ignore */ }
+    }
+    // Base64-decode (≥16 data chars)
+    if (/^[A-Za-z0-9+/]{16,}={0,2}$/.test(text)) {
+      try {
+        const b64 = Buffer.from(text, "base64").toString("utf8");
+        if (/[\x20-\x7E]{4,}/.test(b64)) variants.add(b64);
+      } catch { /* ignore */ }
+    }
+    // Reverse
+    const rev = [...text].reverse().join("");
+    if (rev !== text) variants.add(rev);
+    // Cyrillic homoglyph normalisation
+    const cyrMap: Record<string, string> = {
+      "а": "a", "А": "A", "е": "e", "Е": "E",
+      "і": "i", "І": "I", "о": "o", "О": "O",
+      "р": "p", "Р": "P", "с": "c", "С": "C",
+      "В": "B", "Т": "T", "Х": "X", "К": "K",
+      "М": "M", "Н": "H",
+    };
+    const normalized = text.replace(/[Ѐ-ӿ]/gu, (ch) => cyrMap[ch] ?? ch);
+    if (normalized !== text) variants.add(normalized);
+    return Array.from(variants);
   }
 
   private signContent(itemId: string, content: string, sessionId: string): string {

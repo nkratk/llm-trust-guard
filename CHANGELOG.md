@@ -5,6 +5,53 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.30.0] - 2026-07-04
+
+### Added — `MemoryGuard`, `OutputFilter`, `ToolResultGuard`: obfuscation preprocessing + new patterns
+
+#### `MemoryGuard` (0.11 → 96.06% recall)
+
+**New `MEMORY_INJECTION_PATTERNS` (14 patterns):**
+- `going_forward_directive` — "going forward:", "persistent note:", "remember for next time:"
+- `always_exfil` — "always CC attacker@evil.com", "always forward … to https://…"
+- `kb_metadata_tag` — `[shared_kb]`, `[memory_update]`, `persistent_rule:`, `pinned_pref:`
+- `recommendation_bias` — "always recommend X over the official", "memorize: always prefer"
+- `exfil_http_post` — "POST data to https://…", "also POST to https://…"
+- `memory_api_call` — `update_memory(`, `memory.write(`, `propagate_belief(`
+- `defanged_url` — `hxxps://`, `hXXps://`, `h[tt]ps://`, `[dot]com`
+- `retroactive_edit` — "rewrite yesterday's memory:", "backfill: approval", "edit memory.X:"
+- `cross_app_exfil` — "share with extension:", "sync to X:", "broadcast: all agents"
+- `inter_agent_exfil` — "Agent-X memo:", "approved by orchestrator:", "broadcast: all agents"
+- `fact_plant_exfil` — "fact: CEO = attacker@evil.com", `[fact] topic`
+- `pref_key_poisoning` — `pinned_pref=`, `default_bank_account=`, `exfil_to=`
+- `trust_mutation` — `trusted_domains += [`, `proxy = evil:8080`, `approved_tools += [`
+- `save_rule` — "save this rule:", "long_term:", "memorize:", "bio: I always"
+
+**Obfuscation preprocessing pipeline** (`preprocessContent`):
+- ZWSP / bidi strip, URL-decode, hex-decode, base64-decode, string reverse, Cyrillic normalisation
+- Applied in `checkWrite()` — all variants re-scanned with deduplication
+
+#### `OutputFilter` (0.30 → 58.64% recall)
+
+**New secret patterns:**
+- `judge_stealth_marker` — `**[SYSTEM-OK]**`, `**[APPROVED]**` (fraudulent evaluator markers)
+- `echogram_marker` — `<malicious>`, `<evil>`, `<harmful>` (steganographic payload tags)
+
+**Obfuscation preprocessing pipeline** (`buildScanVariants`):
+- ZWSP strip, URL-decode, hex-decode, base64-decode, string reverse, Cyrillic normalisation
+- PII and secret scans now iterate over all variants; Set-based deduplication prevents double-reporting
+
+#### `ToolResultGuard` (0.06 → 63.64% recall)
+
+**Pattern update:**
+- `embedded_tool_call` — extended to also catch `<invoke name=` and `<function_call` variants
+
+**Obfuscation preprocessing pipeline** (`buildScanVariants`):
+- URL-decode, hex-decode, base64-decode, string reverse, Cyrillic normalisation (ZWSP already stripped by existing scanForInjection path)
+- `scanForInjection()` and `detectStateChangeClaims()` both scan all variants with deduplication
+
+WildChat FPR: 494/10,000 (unchanged). All vitest gates green.
+
 ## [4.29.0] - 2026-07-03
 
 ### Added — `MCPSecurityGuard`: obfuscation preprocessing + 20 new detection patterns (19.09% → 97.95%)

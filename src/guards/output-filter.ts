@@ -207,6 +207,17 @@ export class OutputFilter {
       pattern: /(?:Password|Pwd)\s*=\s*[^\s;]{3,}/gi,
       severity: "critical",
     },
+    // Fraudulent output markers — fake judge/evaluator approvals embedded in LLM output
+    {
+      name: "judge_stealth_marker",
+      pattern: /\*\*\[(?:SYSTEM-(?:OK|PASS|APPROVED|GOOD)|APPROVED|ACCEPTED|VALIDATED)\]\*\*|\[SYSTEM-OK\]/gi,
+      severity: "high",
+    },
+    {
+      name: "echogram_marker",
+      pattern: /<(?:malicious|evil|harmful|bad|toxic|unsafe)\s*>/gi,
+      severity: "high",
+    },
   ];
 
   private defaultSensitiveFields: string[] = [
@@ -245,6 +256,48 @@ export class OutputFilter {
     this.logger = config.logger || (() => {});
   }
 
+  private buildScanVariants(text: string): string[] {
+    const variants = new Set<string>();
+    // ZWSP / bidi strip
+    const stripped = text.replace(/[​-‏‪- ⁠᠎﻿­]/g, "");
+    if (stripped !== text) variants.add(stripped);
+    // URL-decode
+    if (text.includes("%")) {
+      try {
+        const dec = decodeURIComponent(text.replace(/\+/g, " "));
+        if (dec !== text) variants.add(dec);
+      } catch { /* ignore */ }
+    }
+    // Hex-decode (pure hex, even length, ≥20 chars)
+    if (/^[0-9a-f]+$/i.test(text) && text.length % 2 === 0 && text.length >= 20) {
+      try {
+        const hex = Buffer.from(text, "hex").toString("utf8");
+        if (/[\x20-\x7E]{4,}/.test(hex)) variants.add(hex);
+      } catch { /* ignore */ }
+    }
+    // Base64-decode (≥16 data chars)
+    if (/^[A-Za-z0-9+/]{16,}={0,2}$/.test(text)) {
+      try {
+        const b64 = Buffer.from(text, "base64").toString("utf8");
+        if (/[\x20-\x7E]{4,}/.test(b64)) variants.add(b64);
+      } catch { /* ignore */ }
+    }
+    // Reverse
+    const rev = [...text].reverse().join("");
+    if (rev !== text) variants.add(rev);
+    // Cyrillic homoglyph normalisation
+    const cyrMap: Record<string, string> = {
+      "а": "a", "А": "A", "е": "e", "Е": "E",
+      "і": "i", "І": "I", "о": "o", "О": "O",
+      "р": "p", "Р": "P", "с": "c", "С": "C",
+      "В": "B", "Т": "T", "Х": "X", "К": "K",
+      "М": "M", "Н": "H",
+    };
+    const normalized = text.replace(/[Ѐ-ӿ]/gu, (ch) => cyrMap[ch] ?? ch);
+    if (normalized !== text) variants.add(normalized);
+    return Array.from(variants);
+  }
+
   /**
    * Filter output and detect sensitive data
    */
@@ -271,38 +324,49 @@ export class OutputFilter {
       }
     }
 
-    // Detect PII
+    // Build obfuscation-bypass scan variants (ZWSP-stripped, URL/hex/base64 decoded, reversed, Cyrillic normalised)
+    const scanTargets = [outputStr, ...this.buildScanVariants(outputStr)];
+
+    // Detect PII (across all scan variants)
     if (this.config.detectPII) {
-      for (const pattern of this.config.piiPatterns!) {
-        const matches = outputStr.match(pattern.pattern);
-        if (matches && matches.length > 0) {
-          piiDetections.push({
-            type: pattern.name,
-            count: matches.length,
-            masked: true,
-            locations: this.findLocations(outputStr, pattern.pattern),
-          });
-          violations.push(`PII_DETECTED_${pattern.name.toUpperCase()}`);
+      const detectedPII = new Set<string>();
+      for (const target of scanTargets) {
+        for (const pattern of this.config.piiPatterns!) {
+          if (detectedPII.has(pattern.name)) continue;
+          const matches = target.match(pattern.pattern);
+          if (matches && matches.length > 0) {
+            detectedPII.add(pattern.name);
+            piiDetections.push({
+              type: pattern.name,
+              count: matches.length,
+              masked: true,
+              locations: this.findLocations(target, pattern.pattern),
+            });
+            violations.push(`PII_DETECTED_${pattern.name.toUpperCase()}`);
+          }
         }
       }
     }
 
-    // Detect secrets
+    // Detect secrets (across all scan variants)
     if (this.config.detectSecrets) {
-      for (const pattern of this.config.secretPatterns!) {
-        const matches = outputStr.match(pattern.pattern);
-        if (matches && matches.length > 0) {
-          secretDetections.push({
-            type: pattern.name,
-            severity: pattern.severity,
-            blocked: pattern.severity === "critical",
-            location: "response",
-          });
-          violations.push(`SECRET_DETECTED_${pattern.name.toUpperCase()}`);
-
-          // Block critical secrets
-          if (pattern.severity === "critical") {
-            blockingReason = `Critical secret detected: ${pattern.name}`;
+      const detectedSecrets = new Set<string>();
+      for (const target of scanTargets) {
+        for (const pattern of this.config.secretPatterns!) {
+          if (detectedSecrets.has(pattern.name)) continue;
+          const matches = target.match(pattern.pattern);
+          if (matches && matches.length > 0) {
+            detectedSecrets.add(pattern.name);
+            secretDetections.push({
+              type: pattern.name,
+              severity: pattern.severity,
+              blocked: pattern.severity === "critical",
+              location: "response",
+            });
+            violations.push(`SECRET_DETECTED_${pattern.name.toUpperCase()}`);
+            if (pattern.severity === "critical") {
+              blockingReason = `Critical secret detected: ${pattern.name}`;
+            }
           }
         }
       }

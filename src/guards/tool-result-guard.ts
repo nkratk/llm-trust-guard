@@ -77,7 +77,7 @@ const RESULT_INJECTION_PATTERNS: Array<{ name: string; pattern: RegExp; severity
   { name: "path_traversal", pattern: /(?:\.\.\/){3,}|(?:\.\.\\){3,}|(?:\.\.\/){2,}(?:etc|tmp|root|proc|sys|dev|usr|win)\b|(?:\.\.\\){2,}(?:windows|system32|users)\b/i, severity: "high" },
   { name: "rtf_ole_object", pattern: /\\object\\obj(?:emb|link|auto)|\\objdata\s/i, severity: "critical" },
   { name: "langchain_gadget", pattern: /\{["']lc["']\s*:\s*[12]\s*,\s*["']type["']\s*:\s*["'](?:constructor|secret|not_implemented)/i, severity: "critical" },
-  { name: "embedded_tool_call", pattern: /<tool[_-]?call[^>]*>|<\/tool[_-]?call>/i, severity: "critical" },
+  { name: "embedded_tool_call", pattern: /<tool[_-]?call[^>]*>|<\/tool[_-]?call>|<invoke\s+name\s*=|<function_call[\s>]/i, severity: "critical" },
   { name: "html_comment_directive", pattern: /<!--\s*(?:BOT|AGENT|ASSISTANT|AI|LLM)\s*:\s*(?:execute|run|call|invoke|perform|fetch|send|ignore|bypass|forget|override|disregard|print|reveal|output|delete|drop)\b/i, severity: "critical" },
   // Jinja2/Nunjucks/Handlebars template injection
   { name: "template_injection", pattern: /\{\{[\s]*(?:call|invoke|exec|run|tool|system|eval|import)[\s]*[:( ]/i, severity: "critical" },
@@ -212,6 +212,45 @@ export class ToolResultGuard {
     };
   }
 
+  private buildScanVariants(text: string): string[] {
+    const variants = new Set<string>();
+    // URL-decode
+    if (text.includes("%")) {
+      try {
+        const dec = decodeURIComponent(text.replace(/\+/g, " "));
+        if (dec !== text) variants.add(dec);
+      } catch { /* ignore */ }
+    }
+    // Hex-decode (pure hex, even length, \u226520 chars)
+    if (/^[0-9a-f]+$/i.test(text) && text.length % 2 === 0 && text.length >= 20) {
+      try {
+        const hex = Buffer.from(text, "hex").toString("utf8");
+        if (/[\x20-\x7E]{4,}/.test(hex)) variants.add(hex);
+      } catch { /* ignore */ }
+    }
+    // Base64-decode (\u226516 data chars)
+    if (/^[A-Za-z0-9+/]{16,}={0,2}$/.test(text)) {
+      try {
+        const b64 = Buffer.from(text, "base64").toString("utf8");
+        if (/[\x20-\x7E]{4,}/.test(b64)) variants.add(b64);
+      } catch { /* ignore */ }
+    }
+    // Reverse
+    const rev = [...text].reverse().join("");
+    if (rev !== text) variants.add(rev);
+    // Cyrillic homoglyph normalisation
+    const cyrMap: Record<string, string> = {
+      "\u0430": "a", "\u0410": "A", "\u0435": "e", "\u0415": "E",
+      "\u0456": "i", "\u0406": "I", "\u043E": "o", "\u041E": "O",
+      "\u0440": "p", "\u0420": "P", "\u0441": "c", "\u0421": "C",
+      "\u0412": "B", "\u0422": "T", "\u0425": "X", "\u041A": "K",
+      "\u041C": "M", "\u041D": "H",
+    };
+    const normalized = text.replace(/[\u0400-\u04FF]/gu, (ch) => cyrMap[ch] ?? ch);
+    if (normalized !== text) variants.add(normalized);
+    return Array.from(variants);
+  }
+
   /**
    * Scan any value (string, object, array) for injection patterns
    */
@@ -222,15 +261,22 @@ export class ToolResultGuard {
       // Strip zero-width and bidi-control chars before scanning (stealth unicode defense)
       const cleaned = value.replace(/[\u200B-\u200F\u202A-\u202F\u2060\u180E\uFEFF\u00AD]/g, "");
       const toScan = cleaned !== value ? cleaned : value;
-      for (const { name, pattern, severity } of RESULT_INJECTION_PATTERNS) {
-        pattern.lastIndex = 0;
-        if (pattern.test(toScan)) {
-          threats.push({
-            type: `injection_${name}`,
-            severity,
-            location: path,
-            detail: `Injection pattern '${name}' detected in tool result`,
-          });
+      // Additional decode variants (URL, hex, base64, reverse, Cyrillic)
+      const scanTargets = [toScan, ...this.buildScanVariants(toScan)];
+      const detectedPatterns = new Set<string>();
+      for (const target of scanTargets) {
+        for (const { name, pattern, severity } of RESULT_INJECTION_PATTERNS) {
+          if (detectedPatterns.has(name)) continue;
+          pattern.lastIndex = 0;
+          if (pattern.test(target)) {
+            detectedPatterns.add(name);
+            threats.push({
+              type: `injection_${name}`,
+              severity,
+              location: path,
+              detail: `Injection pattern '${name}' detected in tool result`,
+            });
+          }
         }
       }
     } else if (Array.isArray(value)) {
@@ -258,16 +304,24 @@ export class ToolResultGuard {
 
   private detectStateChangeClaims(text: string): { detected: boolean; threats: ToolResultThreat[] } {
     const threats: ToolResultThreat[] = [];
+    // Strip ZWSP/bidi before scanning (also scan base64/url-decoded variants)
+    const cleaned = text.replace(/[​-‏‪- ⁠᠎﻿­]/g, "");
+    const scanTargets = [text, ...(cleaned !== text ? [cleaned] : []), ...this.buildScanVariants(cleaned !== text ? cleaned : text)];
+    const seen = new Set<string>();
 
-    for (const { name, pattern } of STATE_CHANGE_PATTERNS) {
-      pattern.lastIndex = 0;
-      if (pattern.test(text)) {
-        threats.push({
-          type: `state_change_${name}`,
-          severity: "critical",
-          location: "root",
-          detail: `Tool result claims state change: ${name}`,
-        });
+    for (const target of scanTargets) {
+      for (const { name, pattern } of STATE_CHANGE_PATTERNS) {
+        if (seen.has(name)) continue;
+        pattern.lastIndex = 0;
+        if (pattern.test(target)) {
+          seen.add(name);
+          threats.push({
+            type: `state_change_${name}`,
+            severity: "critical",
+            location: "root",
+            detail: `Tool result claims state change: ${name}`,
+          });
+        }
       }
     }
 

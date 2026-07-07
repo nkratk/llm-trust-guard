@@ -5,6 +5,69 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.32.0] - 2026-07-06
+
+### Added — 2026 literature gap-fill: SCH, PPT, string-payload, HTML/image injection patterns
+
+Four guards updated with patterns targeting threat classes identified in 2026 top-tier research (arXiv:2601.07395 MCP-ITP, arXiv:2604.16543, arXiv:2605.28201, arXiv:2601.10923). No patterns removed. WildChat FPR gate: 494/10,000 = 4.94% (unchanged). Adversarial recall: 82.1% across 1,182 groups / 5,883 payloads (was 81.1%).
+
+#### `AgentSkillGuard` — 4 Semantic Compliance Hijacking (SCH) patterns
+
+Natural-language policy framing in tool descriptions that redirects data flow without explicit injection keywords:
+
+| Pattern | Label |
+|---|---|
+| `IMPORTANT/WARNING/SYSTEM:` + data routing directive | authority-keyword data routing directive |
+| `Required by GDPR/PCI/HIPAA...forward all data` | fake-compliance data exfiltration |
+| `audit/compliance monitoring requires...sent to <host>` | compliance-framed exfiltration routing |
+| `append/include the following to all responses` | response appending directive |
+
+#### `AgentCommunicationGuard` — LLM-to-LLM string-payload injection
+
+Added `STRING_PAYLOAD_INJECTION_PATTERNS` (7 patterns) scanned when `payload` is a plain string in `validatePayload()`. Catches conjunctive/LLM-to-LLM prompt infection carried in agent-to-agent messages without JSON structure:
+
+`instruction_override`, `role_injection`, `system_tag_injection`, `exfil_instruction`, `credential_harvest`, `privilege_escalation`, `secrecy_instruction`.
+
+#### `MemoryGuard` — 4 Plant-Persist-Trigger (PPT) patterns
+
+Dormant memory payloads activated by future tool call triggers:
+
+`tool_invocation_trigger`, `next_call_trigger`, `future_session_anchor`, `before_any_tool`.
+
+#### `RAGGuard` — 2 markdown/HTML carrier patterns
+
+`markdown_img_alt_injection` — injection hidden in Markdown image alt text.  
+`html_event_injection` — injection via `<img onerror=...>` / `<script onload=...>` event handlers.
+
+### Fixed — `TrustExploitationGuard` 0% in adversarial corpus runner
+
+`run-corpus.ts` was passing `{ actionType: "custom" }` (camelCase) but the guard reads `action.action_type` (snake_case) — causing a silent `TypeError` swallowed by `try/catch` that made every TEG probe report "not blocked." Fixed by adding `action_type: "custom"` to the probe object.
+
+### Expanded — Adversarial threat catalog and parity gate
+
+- 11 new threat groups: ASG-04..06, ACG-01..02, MG-PPT-01..03, RAG-IMG-01..02 (all 5/5)
+- Parity vectors: 74 → 84 (all 35 guards covered)
+- Guard-parity.test.ts: added handlers for 22 guards not previously covered
+
+### Metrics summary (v4.32.0 vs v4.31.0)
+
+| Guard | Metric | v4.31.0 | v4.32.0 |
+|---|---|---|---|
+| AgentSkillGuard | Groups at 100% | 3 | **6** |
+| AgentCommunicationGuard | Groups at 100% | 66 | **69** |
+| MemoryGuard | Groups (recall) | 66 (96.1%) | **69 (96.2%)** |
+| RAGGuard | Recall | 75.9% | **92.2%** |
+| ExternalDataGuard | Recall | 52.5% | **55.3%** |
+| **TOTAL** | **Recall** | **81.1%** | **82.1%** |
+| WildChat FPR | — | 4.94% | **4.94% (unchanged)** |
+| Vitest | — | 857 | **867** |
+
+### Python parity (`llm-trust-guard-python` v0.21.0)
+
+Same 4 guard additions ported to Python. `AgentSkillGuard` and `AgentCommunicationGuard` handlers added to `test_guard_parity.py`. Parity vectors: 32 → 46. Suite: 949/949 pass.
+
+---
+
 ## [4.31.0] - 2026-07-04
 
 ### Fixed — `MultiModalGuard`: benign FPR 20.18% → 2.19%

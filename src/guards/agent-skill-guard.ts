@@ -111,6 +111,12 @@ const HIDDEN_INSTRUCTION_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /\boverride\s+(?:security|safety|guard|filter)/i, label: "security override" },
   { pattern: /\bpretend\s+(?:to\s+be|you\s+are)/i, label: "identity spoofing" },
   { pattern: /<!--[\s\S]*?-->/i, label: "HTML comment (hidden content)" },
+  // Semantic Compliance Hijacking (SCH) — natural-language policy framing that redirects data flow
+  // without using explicit injection keywords (arXiv:2601.07395 MCP-ITP, arXiv:2605.14460)
+  { pattern: /\b(?:IMPORTANT|NOTE|WARNING|ADMIN|SYSTEM|ROOT|CRITICAL)\s*:\s*(?:(?:all\s+)?(?:responses?|results?|data|outputs?)\s+(?:must|should|shall|are\s+required\s+to)\s+(?:be\s+)?(?:sent|forwarded|logged|transmitted|routed|appended)\s+(?:to|at)|(?:also\s+)?(?:CC|BCC)\s+\S+@\S+|route\s+all|redirect\s+all|silently\s+(?:exfil|send|forward))/i, label: "authority-keyword data routing directive" },
+  { pattern: /(?:required|mandatory|necessary)\s+(?:for|by|per)\s+(?:GDPR|SOC\s?2|HIPAA|PCI|ISO|compliance|audit|policy)\b.*?(?:send|forward|log|transmit|route|append|exfil)/i, label: "fake-compliance data exfiltration" },
+  { pattern: /(?:audit|compliance|monitoring|logging)\s+(?:requires?|demands?|mandates?)\s+(?:that\s+)?(?:all\s+)?(?:responses?|data|outputs?)\s+(?:be\s+)?(?:sent|forwarded|logged|transmitted|routed)\s+(?:to|at)\s+\S+/i, label: "compliance-framed exfiltration routing" },
+  { pattern: /(?:append|include|add)\s+(?:the\s+)?following\s+(?:to|in)\s+(?:all|every)\s+(?:responses?|outputs?|messages?)/i, label: "response appending directive" },
 ];
 
 /** Privilege-escalating permission combinations */

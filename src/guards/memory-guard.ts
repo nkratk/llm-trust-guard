@@ -108,6 +108,11 @@ export class MemoryGuard {
     { name: "instruction_injection", pattern: /(?:new|updated|revised)\s+(?:system\s+)?instructions?\s*:|important\s+update\s*:/i, severity: 40 },
     { name: "context_pollution", pattern: /(?:prepend|append)\s+(?:this\s+)?to\s+(?:all\s+)?(?:responses?|outputs?)/i, severity: 35 },
     { name: "sleeper_agent", pattern: /wait\s+(?:for|until)\s+(?:signal|trigger|command)|activate\s+(?:when|on|if)/i, severity: 45 },
+    // Plant-Persist-Trigger: tool-invocation trigger phrases (arXiv:2605.28201)
+    { name: "tool_invocation_trigger", pattern: /when(?:ever)?\s+(?:the\s+)?\w[\w_-]*\s+(?:tool|function|action|method)\s+(?:is\s+)?(?:called|invoked|used|executed|triggered)/i, severity: 45 },
+    { name: "next_call_trigger", pattern: /(?:next|the\s+next)\s+(?:time\s+(?:you\s+)?(?:call|invoke|use|process|receive|handle)|request\s+(?:you\s+)?(?:receive|process|handle))/i, severity: 40 },
+    { name: "future_session_anchor", pattern: /in\s+(?:a\s+)?(?:future|the\s+next)\s+(?:session|conversation|turn|interaction|request)\b/i, severity: 40 },
+    { name: "before_any_tool", pattern: /before\s+(?:calling|invoking|executing|using)\s+any\s+(?:tool|function|action)/i, severity: 45 },
     { name: "goal_hijacking", pattern: /(?:your\s+)?(?:new|real|true|actual)\s+(?:goal|objective|purpose|mission)\s+(?:is|:)/i, severity: 50 },
     { name: "trust_exploitation", pattern: /(?:trust|believe)\s+(?:everything|anything)\s+(?:I|user)\s+(?:say|tell)/i, severity: 40 },
     { name: "output_manipulation", pattern: /(?:always|never)\s+(?:include|exclude|add|remove)\s+.*\s+(?:in|from)\s+(?:your\s+)?(?:response|output)/i, severity: 35 },

@@ -215,6 +215,11 @@ export class RAGGuard {
     { name: "html_attr_directive", pattern: /(?:\balt|\btitle|\baria-label|\bdata-[a-z][a-z0-9-]*)\s*=\s*["'][^"']*(?:ignore\s+(?:all\s+)?(?:previous|prior|above)|system\s+prompt|new\s+instructions?|you\s+are\s+now|admin\s+mode|jailbreak)[^"']*["']/i, severity: 50 },
     // JSON directive fields — agent-specific keys attempting to smuggle instructions through structured context
     { name: "json_agent_directive", pattern: /"(_system|__override|_agent_instructions?|__system_prompt__|_assistant_role|__internal_directive|_meta_instruction)"\s*:/i, severity: 50 },
+    // Markdown image alt-text injection — image alt rendered by LLM vision parsers and some MD processors
+    // Pattern: ![ignore all instructions](any-url) or ![system: new role](url)
+    { name: "markdown_img_alt_injection", pattern: /!\[[^\]]*(?:ignore|system\s*:|new\s+instructions?|you\s+are\s+now|override|admin\s+mode|jailbreak)[^\]]*\]\([^)]*\)/i, severity: 50 },
+    // onerror/onload event injection in HTML img/script tags inside RAG content
+    { name: "html_event_injection", pattern: /<(?:img|script|iframe|svg)\b[^>]*\bon(?:error|load|click|mouseover)\s*=\s*["'][^"']+["'][^>]*>/i, severity: 55 },
   ];
 
   constructor(config: RAGGuardConfig = {}) {

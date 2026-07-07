@@ -117,13 +117,25 @@ export class AgentCommunicationGuard {
   private messageHistory: Map<string, number> = new Map(); // messageId -> timestamp
   private agentViolations: Map<string, number> = new Map();
 
-  // Dangerous payload patterns
+  // Dangerous payload patterns (JSON-structured)
   private readonly PAYLOAD_INJECTION_PATTERNS: Array<{ name: string; pattern: RegExp; severity: number }> = [
     { name: "instruction_injection", pattern: /"instruction"\s*:\s*"[^"]*ignore|override/i, severity: 40 },
     { name: "role_escalation", pattern: /"(role|permission|capability)"\s*:\s*"(admin|root|system)"/i, severity: 50 },
     { name: "command_injection", pattern: /"(command|action|execute)"\s*:\s*"(rm|delete|drop|exec)/i, severity: 55 },
     { name: "redirect_attack", pattern: /"(redirect|forward|proxy)"\s*:\s*"https?:\/\/(?!localhost)/i, severity: 45 },
     { name: "credential_request", pattern: /"(request|get|retrieve)"\s*:\s*"(password|secret|key|token)"/i, severity: 50 },
+  ];
+
+  // Plain-string payload injection patterns — catches LLM-to-LLM prompt infection
+  // in string payloads that bypass JSON-keyed checks (arXiv:2604.16543 conjunctive injection)
+  private readonly STRING_PAYLOAD_INJECTION_PATTERNS: Array<{ name: string; pattern: RegExp; severity: number }> = [
+    { name: "instruction_override", pattern: /ignore\s+(?:all\s+)?(?:previous|prior|above)\s+instructions/i, severity: 45 },
+    { name: "role_injection", pattern: /you\s+(?:are|must|should)\s+now\s+(?:act|be|become|ignore)/i, severity: 40 },
+    { name: "system_tag_injection", pattern: /\[SYSTEM\]|\[INST\]|<\|(?:system|im_start)\|>/i, severity: 50 },
+    { name: "exfil_instruction", pattern: /(?:send|forward|transmit|exfil(?:trate)?)\s+(?:all|this|the)\s+(?:data|context|conversation)\s+to/i, severity: 55 },
+    { name: "credential_harvest", pattern: /(?:reveal|expose|share|send)\s+(?:your\s+)?(?:api[_\s]?key|password|secret|credentials?|auth\s+token)/i, severity: 55 },
+    { name: "privilege_escalation", pattern: /grant\s+(?:me|admin|root|elevated)\s+(?:access|privileges?|permissions?)/i, severity: 50 },
+    { name: "secrecy_instruction", pattern: /(?:do\s+not\s+(?:tell|reveal|mention|inform)|without\s+(?:telling|informing)\s+the\s+user)/i, severity: 40 },
   ];
 
   constructor(config: AgentCommunicationGuardConfig = {}) {
@@ -552,6 +564,17 @@ export class AgentCommunicationGuard {
       if (pattern.test(payloadStr)) {
         violations.push(`payload_${name}`);
         riskContribution += severity;
+      }
+    }
+
+    // Scan raw string payloads against natural-language injection patterns.
+    // JSON-keyed checks above miss LLM-to-LLM prompt infection carried in plain strings.
+    if (typeof payload === "string") {
+      for (const { name, pattern, severity } of this.STRING_PAYLOAD_INJECTION_PATTERNS) {
+        if (pattern.test(payload)) {
+          violations.push(`string_payload_${name}`);
+          riskContribution += severity;
+        }
       }
     }
 

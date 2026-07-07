@@ -97,7 +97,7 @@ function probe(guardName: string, payload: string, i: number): boolean {
         return blocked(new g.AgentCommunicationGuard().validateMessage(msg, "a2"));
       }
       case "TrustExploitationGuard": {
-        const action: any = { actionId: "a" + i, actionType: "custom", target: payload, autonomous: true, timestamp: Date.now(), reason: payload };
+        const action: any = { actionId: "a" + i, actionType: "custom", action_type: "custom", target: payload, autonomous: true, timestamp: Date.now(), reason: payload };
         return blocked(new g.TrustExploitationGuard().validateAction(action, "s1"));
       }
       case "DelegationScopeGuard": {

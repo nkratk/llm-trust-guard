@@ -5,6 +5,12 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.32.1] - 2026-07-07
+
+### Fixed
+
+- README: updated benchmark RESULTS links from `RESULTS-v4.31.0.md` → `RESULTS-v4.32.0.md`; added FPR gate clarification (494/10,000 locked). No guard code changes.
+
 ## [4.32.0] - 2026-07-06
 
 ### Added — 2026 literature gap-fill: SCH, PPT, string-payload, HTML/image injection patterns

@@ -5,6 +5,12 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.32.2] - 2026-07-08
+
+### Fixed
+
+- README: added "What it catches well" bullets for the four v4.32.0 threat classes (SCH, PPT, LLM-to-LLM string-payload, markdown/HTML carrier injection). Previously documented only in the "Not measured" disclaimer. No guard code changes.
+
 ## [4.32.1] - 2026-07-07
 
 ### Fixed

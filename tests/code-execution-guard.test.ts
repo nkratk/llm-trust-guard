@@ -72,6 +72,12 @@ result = subprocess.run(["ls", "-la"], capture_output=True)
     expect(guard.analyze("type(x).mro()", "python").allowed).toBe(true);
   });
 
+  it("should NOT flag two distinct gadget tokens used far apart in unrelated functions", () => {
+    const code =
+      "def get_all_subclasses(cls):\n    for subclass in cls.__subclasses__():\n        yield subclass\ndef method_resolution_order(cls):\n    return cls.__mro__";
+    expect(guard.analyze(code, "python").allowed).toBe(true);
+  });
+
   it("should block a disallowed language", () => {
     const result = guard.analyze("puts 'hello world'", "ruby");
     expect(result.allowed).toBe(false);

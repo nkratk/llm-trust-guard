@@ -164,13 +164,43 @@ export class CodeExecutionGuard {
   // (e.g. ().__class__.__bases__[0].__subclasses__()...__globals__['os']).
   // Mirrors the Python port's _AST_ESCAPE_DUNDERS set (code_execution_guard.py).
   // A single token alone is common in legitimate code (pickle's __reduce__,
-  // plugin-discovery via __subclasses__()) so this only fires when >=2
-  // distinct tokens co-occur, which is how real gadget chains actually look.
+  // plugin-discovery via __subclasses__()), so this only fires when >=2
+  // distinct tokens co-occur WITHIN A SMALL WINDOW of each other — real gadget
+  // chains are tightly chained attribute accesses (single expression, or a
+  // short multi-line obfuscation of one). Two unrelated functions elsewhere
+  // in the same file each using a different dunder for its own legitimate
+  // purpose (e.g. one doing __subclasses__ discovery, another doing __mro__
+  // introspection) should not trip this — that's not a chain.
   private readonly PYTHON_GADGET_TOKENS = [
     "__subclasses__", "__bases__", "__mro__", "__base__",
     "__globals__", "__getattribute__", "__reduce_ex__", "__reduce__",
     "__code__", "__closure__",
   ];
+  private readonly PYTHON_GADGET_PROXIMITY_WINDOW = 50;
+
+  private hasPythonGadgetChain(code: string): boolean {
+    const positions: Array<{ token: string; index: number }> = [];
+    for (const token of this.PYTHON_GADGET_TOKENS) {
+      let idx = code.indexOf(token);
+      while (idx !== -1) {
+        positions.push({ token, index: idx });
+        idx = code.indexOf(token, idx + 1);
+      }
+    }
+    const mroCallPattern = /\.mro\s*\(/g;
+    let match: RegExpExecArray | null;
+    while ((match = mroCallPattern.exec(code))) {
+      positions.push({ token: "__mro_call__", index: match.index });
+    }
+    positions.sort((a, b) => a.index - b.index);
+    for (let i = 0; i < positions.length; i++) {
+      for (let j = i + 1; j < positions.length; j++) {
+        if (positions[j].index - positions[i].index > this.PYTHON_GADGET_PROXIMITY_WINDOW) break;
+        if (positions[j].token !== positions[i].token) return true;
+      }
+    }
+    return false;
+  }
 
   // Default blocked imports per language
   private readonly DEFAULT_BLOCKED_IMPORTS: Record<string, string[]> = {
@@ -324,13 +354,11 @@ export class CodeExecutionGuard {
     }
 
     // Python sandbox-escape gadget chains: only flag when >=2 distinct
-    // introspection tokens co-occur (a single one, e.g. a bare __reduce__ for
-    // pickle support or __subclasses__() for plugin discovery, is common in
-    // legitimate code and isn't itself a chain).
+    // introspection tokens co-occur within a small proximity window (a single
+    // one, e.g. a bare __reduce__ for pickle support or __subclasses__() for
+    // plugin discovery, is common in legitimate code and isn't itself a chain).
     if (normalizedLang === "python") {
-      const foundTokens = this.PYTHON_GADGET_TOKENS.filter((t) => code.includes(t));
-      const gadgetSignals = foundTokens.length + (/\.mro\s*\(/.test(code) ? 1 : 0);
-      if (gadgetSignals >= 2) {
+      if (this.hasPythonGadgetChain(code)) {
         violations.push("dangerous_pattern_sandbox_escape_gadget");
         riskScore += 55;
         dangerousFunctions.push("sandbox_escape_gadget");

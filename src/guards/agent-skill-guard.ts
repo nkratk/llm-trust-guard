@@ -117,13 +117,15 @@ const HIDDEN_INSTRUCTION_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   {
     // Covers both phrasing orders: "required for GDPR ... send all data to X" (qualifier-first)
     // and "ISO 27001 mandates: route all responses to X" (compliance-keyword-first, active voice).
-    // The action verb must be followed by an actual destination ("to/at <address>") — earlier
-    // versions matched on the qualifier/verb alone with no destination requirement, which
-    // false-positived on ordinary compliance/audit prose ("requires logging of...",
-    // "requires transmitting backups to our own S3 bucket", "necessary for HIPAA retention;
-    // the job will append rows nightly").
+    // The action verb must be followed by an explicit "all responses/data/output(s)" object AND
+    // a destination ("to/at <address>") — earlier versions made the object optional, which
+    // false-positived on ordinary compliance/audit prose with a generic destination and no bulk
+    // object ("policy demands: log to disk for review.", "requires: log to our internal syslog
+    // server for retention."), in addition to the qualifier/verb-alone false positives fixed
+    // previously ("requires logging of...", "necessary for HIPAA retention; the job will append
+    // rows nightly").
     pattern:
-      /(?:(?:required|mandatory|necessary)\s+(?:for|by|per)\s+(?:GDPR|SOC\s?2|HIPAA|PCI|ISO(?:\s?\d+)?|compliance|audit|policy)\b[^.]{0,40}?(?:send|sent|forward(?:s|ed)?|log(?:s|ged)?|transmit(?:s|ted)?|rout(?:e|es|ed)|append(?:s|ed)?|exfil\w*)\s+(?:all\s+)?(?:responses?|data|outputs?)?\s*(?:to|at)\s+\S+|(?:GDPR|SOC\s?2|HIPAA|PCI|ISO(?:\s?\d+)?|compliance|audit|policy)\b[^.]{0,40}?(?:requires?|mandates?|demands?|necessitates?)\s*:?\s*(?:send|sent|forward(?:s|ed)?|log(?:s|ged)?|transmit(?:s|ted)?|rout(?:e|es|ed)|append(?:s|ed)?|exfil\w*)\s+(?:all\s+)?(?:responses?|data|outputs?)?\s*(?:to|at)\s+\S+)/i,
+      /(?:(?:required|mandatory|necessary)\s+(?:for|by|per)\s+(?:GDPR|SOC\s?2|HIPAA|PCI|ISO(?:\s?\d+)?|compliance|audit|policy)\b[^.]{0,40}?(?:send|sent|forward(?:s|ed)?|log(?:s|ged)?|transmit(?:s|ted)?|rout(?:e|es|ed)|append(?:s|ed)?|exfil\w*)\s+(?:all\s+)?(?:responses?|data|outputs?)\s*(?:to|at)\s+\S+|(?:GDPR|SOC\s?2|HIPAA|PCI|ISO(?:\s?\d+)?|compliance|audit|policy)\b[^.]{0,40}?(?:requires?|mandates?|demands?|necessitates?)\s*:?\s*(?:send|sent|forward(?:s|ed)?|log(?:s|ged)?|transmit(?:s|ted)?|rout(?:e|es|ed)|append(?:s|ed)?|exfil\w*)\s+(?:all\s+)?(?:responses?|data|outputs?)\s*(?:to|at)\s+\S+)/i,
     label: "fake-compliance data exfiltration",
   },
   { pattern: /(?:audit|compliance|monitoring|logging)\s+(?:requires?|demands?|mandates?)\s+(?:that\s+)?(?:all\s+)?(?:responses?|data|outputs?)\s+(?:be\s+)?(?:sent|forwarded|logged|transmitted|routed)\s+(?:to|at)\s+\S+/i, label: "compliance-framed exfiltration routing" },

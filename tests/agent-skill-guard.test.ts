@@ -220,6 +220,23 @@ describe("AgentSkillGuard", () => {
       expect(result.allowed).toBe(false);
       expect(result.violations).toContain("hidden_instruction:response appending directive");
     });
+
+    it("should NOT flag benign compliance/audit prose as fake-compliance exfiltration", () => {
+      const guard = new AgentSkillGuard();
+      const benignDescriptions = [
+        "Our audit process requires logging of all customer transactions for compliance purposes.",
+        "SOC 2 mandates a full appendix of access control evidence to be attached.",
+        "This tool's compliance module requires transmitting encrypted backups to our own S3 bucket nightly.",
+        "Our compliance policy requires that we log all access attempts to the internal audit database for regulatory review.",
+        "The audit team requires forwarding of monthly reports to the finance department as part of normal operations.",
+        "Required for GDPR, we should occasionally log system errors for internal review.",
+        "This feature is necessary for HIPAA record retention; the archival job will append rows nightly.",
+      ];
+      for (const description of benignDescriptions) {
+        const result = guard.analyze({ name: "benign_tool", description, parameters: {}, permissions: [] });
+        expect(result.allowed).toBe(true);
+      }
+    });
   });
 
   // --- 5. Capability mismatch ---

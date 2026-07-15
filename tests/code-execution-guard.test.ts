@@ -59,9 +59,17 @@ result = subprocess.run(["ls", "-la"], capture_output=True)
     expect(result.violations.some((v) => v.includes("sandbox_escape_gadget"))).toBe(true);
   });
 
-  it("should detect __reduce__ and .mro() gadget usage", () => {
-    expect(guard.analyze("obj.__reduce__()", "python").allowed).toBe(false);
-    expect(guard.analyze("type(x).mro()", "python").allowed).toBe(false);
+  it("should detect .mro() combined with another gadget token", () => {
+    const result = guard.analyze("type(x).mro()[0].__subclasses__()", "python");
+    expect(result.allowed).toBe(false);
+    expect(result.violations.some((v) => v.includes("sandbox_escape_gadget"))).toBe(true);
+  });
+
+  it("should NOT flag a single gadget token alone (common in legitimate code)", () => {
+    expect(guard.analyze("class PluginRegistry:\n    def discover(self):\n        return PluginBase.__subclasses__()", "python").allowed).toBe(true);
+    expect(guard.analyze("class MyPickleable:\n    def __reduce__(self):\n        return (MyPickleable, ())", "python").allowed).toBe(true);
+    expect(guard.analyze("for cls in object.__subclasses__():\n    print(cls.__name__)", "python").allowed).toBe(true);
+    expect(guard.analyze("type(x).mro()", "python").allowed).toBe(true);
   });
 
   it("should block a disallowed language", () => {

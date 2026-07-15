@@ -15,10 +15,10 @@ This package is your **first line of defense** — like a WAF (Web Application F
 
 ### What it catches well
 
-Per-category detection rates below are measured against the package's curated unit-test suite (representative attack samples per category). On broader held-out corpora these rates are typically lower — see [tests/adversarial/RESULTS-v4.32.2.md](tests/adversarial/RESULTS-v4.32.2.md) for measured detection on attack corpora and [Known limitations](#what-it-catches-partially-50-80-detection) below.
+Per-category detection rates below are measured against the package's curated unit-test suite (representative attack samples per category). On broader held-out corpora these rates are typically lower — see [tests/adversarial/RESULTS-v4.32.3.md](tests/adversarial/RESULTS-v4.32.3.md) for measured detection on attack corpora and [Known limitations](#what-it-catches-partially-50-80-detection) below.
 
 - Known prompt injection phrases (170+ patterns, 11 languages)
-- Encoding bypass attacks (9 formats: Base64, URL, Unicode, Hex, HTML, ROT13, Octal, Base32, mixed)
+- Encoding bypass attacks (9 formats: Base64, URL, Unicode, Hex, HTML, ROT13, Octal, Base32, mixed); `RAGGuard` also decodes URL-encoded document content before injection matching
 - Policy Puppetry attacks (JSON/INI/XML/YAML-formatted injection) — 100% on unit tests
 - Role-play/persona attacks (translator trick, academic pretext, emotional manipulation) — 100% on unit tests
 - PAP/persuasion attacks (authority, urgency, emotional manipulation) — 100% on unit tests
@@ -36,6 +36,7 @@ Per-category detection rates below are measured against the package's curated un
 - **Plant-Persist-Trigger (PPT) dormant memory payloads** — sleeper instructions triggered by future tool calls, next requests, or future sessions (`MemoryGuard`, arXiv:2605.28201)
 - **LLM-to-LLM string-payload injection** — 7 patterns (instruction override, role injection, system-tag smuggling, exfil directive, credential harvest, privilege escalation, secrecy instruction) in plain-string agent-to-agent messages (`AgentCommunicationGuard`, arXiv:2604.16543)
 - **Markdown image alt / HTML event injection** — injection hidden in `![alt text](url)` alt fields or `<img onerror=...>` / `<svg onload=...>` event handlers in RAG-retrieved content (`RAGGuard`, arXiv:2601.10923)
+- **Python object-introspection gadget chains** — `__subclasses__`/`__globals__`/`__mro__`/`__bases__`/`.mro()`/`__reduce__`-style sandbox escapes that reach `os`/`subprocess` without a direct import (`CodeExecutionGuard`, regex-based by default; zero-dependency)
 
 ### What it catches partially (~50-80% detection)
 - Multi-turn escalation (pattern-based, not semantic)
@@ -285,7 +286,7 @@ Mapped to the official lists ([LLM Top 10 2025](https://genai.owasp.org/resource
 
 ## Measured Performance
 
-FPR table below measured at v4.19.0, 2026-04-23 (Sanitizer+Encoder pipeline unchanged since). v4.32.0 adversarial corpus: **82.1% recall across 1,182 threat groups / 5,883 payloads** — full breakdown at [tests/adversarial/RESULTS-v4.32.2.md](tests/adversarial/RESULTS-v4.32.2.md). WildChat FPR gate: **494/10,000 = 4.94%** (locked, deterministic regression gate run on every push).
+FPR table below measured at v4.19.0, 2026-04-23 (Sanitizer+Encoder pipeline unchanged since). v4.32.0 adversarial corpus: **82.1% recall across 1,182 threat groups / 5,883 payloads** — full breakdown at [tests/adversarial/RESULTS-v4.32.3.md](tests/adversarial/RESULTS-v4.32.3.md). WildChat FPR gate: **494/10,000 = 4.94%** (locked, deterministic regression gate run on every push).
 
 **Attack detection on prior-published corpora** (Giskard n=35, Compass CTF Chinese n=11): detection rate has not moved from v4.13.5 → v4.19.0 on the Sanitizer+Encoder pipeline — 80.00% and 9.09% respectively, identical to the v4.13.5 numbers. Six releases of pattern additions (v4.14–v4.19) targeted different attack classes (indirect injection, tool-result validation, memory persistence, multi-agent trust) that these direct-text jailbreak corpora do not exercise. Small sample sizes mean "no evidence of improvement," not "proof of no improvement."
 
@@ -298,7 +299,7 @@ FPR table below measured at v4.19.0, 2026-04-23 (Sanitizer+Encoder pipeline unch
 
 WildChat filters toxic content but not prompt-injection intent. Canonical-marker analysis + a 50-sample hand-adjudication found that approximately 220 of the 493 Pipeline A blocks are actual jailbreak attempts users sent to ChatGPT, not genuine false positives. Corrected FPR is in the same order of magnitude as Meta Prompt Guard 86M's self-reported 3–5% out-of-distribution FPR — not a head-to-head comparison, but a useful reference point.
 
-**Not measured on external corpora:** detection rate on attack classes added in v4.19.0–v4.32.2 (CSS-hidden content, HTML attribute directives, Semantic Compliance Hijacking, Plant-Persist-Trigger, LLM-to-LLM string-payload injection, markdown image alt injection, HTML event injection). No public held-out corpus exists for these at statistical scale. Internal adversarial corpus recall: 82.1% (1,182 groups — see [RESULTS-v4.32.2.md](tests/adversarial/RESULTS-v4.32.2.md)); independent third-party evaluation is invited.
+**Not measured on external corpora:** detection rate on attack classes added in v4.19.0–v4.32.3 (CSS-hidden content, HTML attribute directives, Semantic Compliance Hijacking, Plant-Persist-Trigger, LLM-to-LLM string-payload injection, markdown image alt injection, HTML event injection). No public held-out corpus exists for these at statistical scale. Internal adversarial corpus recall: 82.1% (1,182 groups — see [RESULTS-v4.32.3.md](tests/adversarial/RESULTS-v4.32.3.md)); independent third-party evaluation is invited.
 
 For higher detection on adversarial corpora, plug in an ML classifier via the [DetectionClassifier interface](#pluggable-detection).
 

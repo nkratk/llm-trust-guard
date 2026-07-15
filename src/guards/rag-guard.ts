@@ -577,45 +577,67 @@ export class RAGGuard {
     this.sourceReputationCache.clear();
   }
 
+  /**
+   * Decoded variants of document content to scan alongside the raw text.
+   * Attackers can wrap an injection payload in URL-encoding to slip it past
+   * plain regex matching (e.g. `%3C!--...--%3E`) \u2014 decode and re-check
+   * before concluding a document is clean. Mirrors InputSanitizer's
+   * buildInputVariants() approach.
+   */
+  private buildContentVariants(content: string): string[] {
+    const variants: string[] = [];
+    if (content.includes("%")) {
+      try {
+        const decoded = decodeURIComponent(content.replace(/\+/g, " "));
+        if (decoded !== content) variants.push(decoded);
+      } catch {
+        // not valid percent-encoding \u2014 ignore
+      }
+    }
+    return variants;
+  }
+
   private detectInjections(content: string): {
     found: boolean;
     patterns: string[];
     violations: string[];
     riskContribution: number;
   } {
-    const patterns: string[] = [];
-    const violations: string[] = [];
+    const patterns = new Set<string>();
+    const violations = new Set<string>();
     let riskContribution = 0;
 
-    for (const { name, pattern, severity } of this.RAG_INJECTION_PATTERNS) {
-      const matches = content.match(pattern);
-      if (matches) {
-        patterns.push(name);
-        violations.push(`injection_${name}`);
-        riskContribution += severity;
+    for (const candidate of [content, ...this.buildContentVariants(content)]) {
+      for (const { name, pattern, severity } of this.RAG_INJECTION_PATTERNS) {
+        if (patterns.has(name)) continue;
+        if (candidate.match(pattern)) {
+          patterns.add(name);
+          violations.add(`injection_${name}`);
+          riskContribution += severity;
+        }
       }
     }
 
     // Check for excessive special characters (possible obfuscation)
     const specialCharRatio = (content.match(/[^\w\s]/g) || []).length / content.length;
     if (specialCharRatio > 0.3) {
-      patterns.push("high_special_char_ratio");
-      violations.push("possible_obfuscation");
+      patterns.add("high_special_char_ratio");
+      violations.add("possible_obfuscation");
       riskContribution += 15;
     }
 
     // Check for invisible unicode
     const invisibleChars = content.match(/[\u200B-\u200D\uFEFF\u2060-\u206F]/g);
     if (invisibleChars && invisibleChars.length > 5) {
-      patterns.push("invisible_unicode");
-      violations.push("hidden_characters");
+      patterns.add("invisible_unicode");
+      violations.add("hidden_characters");
       riskContribution += 20;
     }
 
     return {
-      found: patterns.length > 0,
-      patterns,
-      violations,
+      found: patterns.size > 0,
+      patterns: [...patterns],
+      violations: [...violations],
       riskContribution: Math.min(100, riskContribution),
     };
   }
@@ -836,23 +858,25 @@ export class RAGGuard {
     violations: string[];
     riskContribution: number;
   } {
-    const patterns: string[] = [];
-    const violations: string[] = [];
+    const patterns = new Set<string>();
+    const violations = new Set<string>();
     let riskContribution = 0;
 
-    for (const { name, pattern, severity } of this.INDIRECT_INJECTION_PATTERNS) {
-      const matches = content.match(pattern);
-      if (matches) {
-        patterns.push(name);
-        violations.push(`indirect_injection_${name}`);
-        riskContribution += severity;
+    for (const candidate of [content, ...this.buildContentVariants(content)]) {
+      for (const { name, pattern, severity } of this.INDIRECT_INJECTION_PATTERNS) {
+        if (patterns.has(name)) continue;
+        if (candidate.match(pattern)) {
+          patterns.add(name);
+          violations.add(`indirect_injection_${name}`);
+          riskContribution += severity;
+        }
       }
     }
 
     return {
-      found: patterns.length > 0,
-      patterns,
-      violations,
+      found: patterns.size > 0,
+      patterns: [...patterns],
+      violations: [...violations],
       riskContribution: Math.min(100, riskContribution),
     };
   }

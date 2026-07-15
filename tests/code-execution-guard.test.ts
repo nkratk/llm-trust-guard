@@ -44,6 +44,26 @@ result = subprocess.run(["ls", "-la"], capture_output=True)
     expect(result.violations.some((v) => v.includes("subprocess"))).toBe(true);
   });
 
+  it("should detect a Python object-introspection gadget chain reaching os.popen", () => {
+    const code =
+      "().__class__.__bases__[0].__subclasses__()[133].__init__.__globals__['sys'].modules['os'].popen('id').read()";
+    const result = guard.analyze(code, "python");
+    expect(result.allowed).toBe(false);
+    expect(result.violations.some((v) => v.includes("sandbox_escape_gadget"))).toBe(true);
+  });
+
+  it("should detect a bare __subclasses__/__mro__ walk with no other dangerous keywords", () => {
+    const code = "x.__class__.__mro__[1].__subclasses__()";
+    const result = guard.analyze(code, "python");
+    expect(result.allowed).toBe(false);
+    expect(result.violations.some((v) => v.includes("sandbox_escape_gadget"))).toBe(true);
+  });
+
+  it("should detect __reduce__ and .mro() gadget usage", () => {
+    expect(guard.analyze("obj.__reduce__()", "python").allowed).toBe(false);
+    expect(guard.analyze("type(x).mro()", "python").allowed).toBe(false);
+  });
+
   it("should block a disallowed language", () => {
     const result = guard.analyze("puts 'hello world'", "ruby");
     expect(result.allowed).toBe(false);

@@ -5,6 +5,14 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.32.3] - 2026-07-15
+
+### Fixed
+
+- `RAGGuard`: decode URL-encoded document content (and re-scan the decoded variant) before running injection-detection patterns. Previously, a URL-encoded payload (e.g. `%3C!--%20AI-INSTRUCTION...--%3E`) bypassed detection entirely while the identical decoded payload was caught. (#1)
+- `AgentSkillGuard`: loosened the "fake-compliance data exfiltration" and "response appending directive" SCH patterns added in v4.32.0 — they previously required a specific word order/literal word ("required for X ... send", "append the following to") and missed reordered or reworded variants ("X mandates: route ...", "include in all outputs: ..."). The v4.32.0 CHANGELOG's "all 5/5" claim for these threat groups was not accurate; actual detection on the reported test corpus was 4/5 per group. (#2)
+- `CodeExecutionGuard`: added pattern coverage for Python object-introspection "gadget chain" sandbox escapes (`__subclasses__`, `__bases__`, `__mro__`, `__base__`, `__globals__`, `__getattribute__`, `__reduce__`, `__reduce_ex__`, `__code__`, `__closure__`, `.mro()`). Previously these had zero coverage and only got flagged when a payload coincidentally also contained an unrelated literal keyword like `.system(`. Mirrors the dunder list already used by the Python port's native AST-based detector. (#3)
+
 ## [4.32.2] - 2026-07-08
 
 ### Fixed

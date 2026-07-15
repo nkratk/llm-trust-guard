@@ -132,6 +132,11 @@ export class CodeExecutionGuard {
       { name: "file_write", pattern: /open\s*\([^)]*['"]w['"]/g, severity: 40 },
       { name: "requests", pattern: /requests\.(get|post|put|delete)\s*\(/g, severity: 35 },
       { name: "getattr_dynamic", pattern: /getattr\s*\(\s*\w+\s*,\s*[^'"]/g, severity: 40 },
+      // Object-introspection "gadget chain" dunders used to walk from an
+      // arbitrary object to os/subprocess without importing them directly
+      // (e.g. ().__class__.__bases__[0].__subclasses__()...__globals__['os']).
+      // Mirrors the Python port's _AST_ESCAPE_DUNDERS set (code_execution_guard.py).
+      { name: "sandbox_escape_gadget", pattern: /__subclasses__|__bases__|__mro__|__base__|__globals__|__getattribute__|__reduce_ex__|__reduce__|__code__|__closure__|\.mro\s*\(/g, severity: 55 },
     ],
     bash: [
       { name: "rm_rf", pattern: /rm\s+(-rf?|--recursive)/gi, severity: 70 },

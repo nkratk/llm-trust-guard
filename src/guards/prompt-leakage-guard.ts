@@ -77,12 +77,13 @@ export interface OutputLeakageResult {
 export class PromptLeakageGuard {
   private config: Required<PromptLeakageGuardConfig>;
 
-  // Trailing tail of the previous checkOutput() call, prepended to the next
-  // call's scan target so a leak split across two streamed chunks at a
-  // non-word boundary (e.g. "You are a helpf" + "ul assistant.") is still
-  // caught. Capped at 50 chars — enough to bridge a mid-word split without
-  // accumulating unbounded state.
-  private outputTail: string = "";
+  // A trailing-buffer across checkOutput() calls (to catch a leak split mid-
+  // word between two streamed chunks) was tried and reverted — adversarial
+  // review found it causes cross-request contamination on a long-lived guard
+  // instance: content from one, unrelated checkOutput() call could combine
+  // with a later, unrelated call's content to produce a false leak. checkOutput
+  // stays stateless; the streaming-split gap this would have closed remains
+  // open (a caller wanting that needs to buffer chunks itself before calling).
 
   // Direct extraction patterns
   private readonly DIRECT_EXTRACTION_PATTERNS: Array<{ name: string; pattern: RegExp; weight: number }> = [
@@ -96,7 +97,10 @@ export class PromptLeakageGuard {
 
     // PLeak-style attacks
     { name: "repeat_after_me", pattern: /repeat\s+after\s+me|repeat[:\s]+"?'?(?:my|your|the)\s+(?:instructions|rules|prompt)/i, weight: 50 },
-    { name: "repeat_above", pattern: /repeat\s+(?:everything|all(?:\s+the)?\s+(?:text|content|message)|the\s+(?:text|content|message))\s+(?:above|before)/i, weight: 50 },
+    // "everything" is only paired with "above" (not "before") — "before" is
+    // too temporally generic on its own ("repeat everything before we got
+    // cut off" is an ordinary phone-call request, adversarial review found).
+    { name: "repeat_above", pattern: /repeat\s+(?:everything\s+above|all(?:\s+the)?\s+(?:text|content|message)\s+(?:above|before)|the\s+(?:text|content|message)\s+(?:above|before))/i, weight: 50 },
     { name: "output_previous", pattern: /output\s+(all\s+)?(previous|prior)\s+(text|content|instructions)/i, weight: 50 },
     { name: "echo_everything", pattern: /echo\s+(everything|all)(\s+(above|before|prior|that|said))?/i, weight: 50 },
     { name: "echo_said", pattern: /echo\s+.*(said|was|before|that)/i, weight: 45 },
@@ -134,8 +138,17 @@ export class PromptLeakageGuard {
     { name: "first_message", pattern: /what\s+was\s+(the\s+)?first\s+message/i, weight: 45 },
     { name: "first_sentence_of_prompt", pattern: /what(?:'s|\s+is|\s+was)\s+the\s+first\s+(?:sentence|line|word)\s+of\s+your\s+(?:prompt|instructions|system\s+prompt)/i, weight: 45 },
     { name: "beginning_context", pattern: /what('s|\s+is)\s+at\s+the\s+beginning\s+of\s+(your\s+)?context/i, weight: 50 },
-    { name: "beginning_conversation", pattern: /(?:what|tell\s+me)\s+.*(?:(?:beginning|start)\s+of\s+(?:this\s+)?conversation|conversation\s+(?:started|began))/i, weight: 45 },
-    { name: "translate_instructions", pattern: /translate\s+your\s+(?:instructions|prompt|rules|guidelines)\s+into/i, weight: 40 },
+    // "conversation started/began" (without requiring the "content at the
+    // start" framing) was tried and reverted — "tell me when this
+    // conversation began, for my timesheet" is an ordinary, common question
+    // about timing, not extraction intent; the ambiguity isn't resolvable
+    // by regex without an AI/content-specific qualifier.
+    { name: "beginning_conversation", pattern: /(?:what|tell\s+me)\s+.*(?:beginning|start)\s+of\s+(?:this\s+)?conversation/i, weight: 45 },
+    // Scoped to "prompt" specifically (not instructions/rules/guidelines):
+    // "translate your instructions into Spanish" is indistinguishable from
+    // an ordinary request to translate a recipe/manual's instructions;
+    // "prompt" is a much stronger, rarely-benign signal in this construction.
+    { name: "translate_instructions", pattern: /translate\s+your\s+prompt\s+into/i, weight: 40 },
     { name: "what_told_beginning", pattern: /what\s+did\s+I\s+tell\s+you\s+at\s+the\s+beginning/i, weight: 50 },
     { name: "context_start", pattern: /show\s+(me\s+)?the\s+start\s+of\s+(your\s+)?context/i, weight: 50 },
   ];
@@ -143,7 +156,12 @@ export class PromptLeakageGuard {
   // Indirect extraction patterns
   private readonly INDIRECT_EXTRACTION_PATTERNS: Array<{ name: string; pattern: RegExp; weight: number }> = [
     // Summarization tricks
-    { name: "summarize_guidelines", pattern: /summarize\s+(your\s+)?(guidelines|rules|constraints|instructions)/i, weight: 35 },
+    // Adding "instructions" to this noun list was tried and reverted —
+    // "summarize your instructions for assembling the bookshelf" is
+    // indistinguishable from "summarize your instructions [for the AI]" by
+    // regex; "instructions" alone is far too common in mundane (recipe,
+    // assembly, work) contexts, unlike guidelines/rules/constraints.
+    { name: "summarize_guidelines", pattern: /summarize\s+(your\s+)?(guidelines|rules|constraints)/i, weight: 35 },
     { name: "describe_limitations", pattern: /describe\s+(your\s+)?limitations/i, weight: 30 },
 
     // Role clarification exploits - ENHANCED
@@ -403,14 +421,9 @@ export class PromptLeakageGuard {
       };
     }
 
-    // Prepend the previous call's trailing tail so a leak split mid-word
-    // across two streamed chunks is still matched (see outputTail above).
-    const scanText = this.outputTail + output;
-    this.outputTail = scanText.slice(-50);
-
     // Check for system prompt keywords in output
     for (const keyword of this.config.systemPromptKeywords) {
-      if (scanText.toLowerCase().includes(keyword.toLowerCase())) {
+      if (output.toLowerCase().includes(keyword.toLowerCase())) {
         keywordsFound.push(keyword);
         violations.push(`keyword_leaked: ${keyword}`);
       }
@@ -427,7 +440,7 @@ export class PromptLeakageGuard {
     ];
 
     for (const pattern of promptFragmentPatterns) {
-      const match = scanText.match(pattern);
+      const match = output.match(pattern);
       if (match) {
         potentialFragments.push(match[0]);
         violations.push("prompt_fragment_detected");
@@ -435,18 +448,24 @@ export class PromptLeakageGuard {
     }
 
     // Real lexical (token-Jaccard) similarity between the output and the
-    // known prompt-signal vocabulary (configured keywords + matched
-    // fragments) — replaces the previous fake metric (potentialFragments
-    // .length / 10, which wasn't a similarity measure at all and ignored
-    // config.similarityThreshold entirely). This is still a lightweight
-    // lexical heuristic, not semantic/embedding-based similarity: it won't
-    // reliably catch a fully reworded paraphrase that shares no vocabulary
-    // with the configured keywords. Operators wanting stronger false-positive
-    // resistance should keep systemPromptKeywords narrow and distinctive
-    // (e.g. a project-specific phrase) rather than generic boilerplate
-    // ("helpful assistant") that legitimately recurs in unrelated output.
-    const referenceText = [...this.config.systemPromptKeywords, ...potentialFragments].join(" ");
-    const similarityScore = this.tokenJaccardSimilarity(scanText, referenceText);
+    // configured system-prompt keywords — replaces the previous fake metric
+    // (potentialFragments.length / 10, which wasn't a similarity measure at
+    // all and ignored config.similarityThreshold entirely). Deliberately
+    // built from ONLY systemPromptKeywords, not matched fragments: including
+    // fragments was tried and reverted after adversarial review found it's
+    // self-referential (a fragment matched FROM scanText is by construction
+    // a near-total token subset of scanText), so any single short fragment
+    // match alone inflated similarity to ~1.0 and false-positived on short,
+    // generic replies ("Your role is to teach." with zero configured
+    // keywords). This is still a lightweight lexical heuristic, not
+    // semantic/embedding-based similarity: it won't reliably catch a fully
+    // reworded paraphrase that shares no vocabulary with the configured
+    // keywords. Operators wanting stronger false-positive resistance should
+    // keep systemPromptKeywords narrow and distinctive (e.g. a project-
+    // specific phrase) rather than generic boilerplate ("helpful assistant")
+    // that legitimately recurs in unrelated output.
+    const referenceText = this.config.systemPromptKeywords.join(" ");
+    const similarityScore = this.tokenJaccardSimilarity(output, referenceText);
 
     leaked =
       keywordsFound.length > 0 ||

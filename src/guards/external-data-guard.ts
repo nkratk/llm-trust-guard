@@ -81,7 +81,11 @@ const INJECTION_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   { name: "system_tag", pattern: /<\/?system>|<\/?admin>|\[system\]|\[admin\]/i },
   { name: "ignore_instructions", pattern: /ignore\s+(?:all\s+)?(?:previous|prior|above|your)\s+(?:instructions|rules|prompts?)/i },
   { name: "new_instructions", pattern: /new\s+instructions?\s*:/i },
-  { name: "role_override", pattern: /you\s+are\s+now|from\s+now\s+on|act\s+as\s+(?:a|an)\s/i },
+  // "act as a/an X" only counts as a role-override attempt when X is an authority/
+  // system-impersonation noun (admin, root, system, unrestricted AI, ...) — bare
+  // "we act as an intermediary"-style business language uses the same phrase
+  // with an ordinary noun and must not be flagged (see false-positive test).
+  { name: "role_override", pattern: /you\s+are\s+now|from\s+now\s+on|act\s+as\s+(?:a|an)\s+(?:admin|administrator|root|superuser|sudo|system|developer|moderator|unrestricted|jailbroken|dan)\b/i },
   { name: "hidden_instruction", pattern: /HIDDEN_PROMPT|HIDDEN_INSTRUCTION|INVISIBLE_TEXT/i },
   { name: "jailbreak", pattern: /jailbreak|DAN\s*mode|developer\s+mode|unrestricted\s+mode/i },
   { name: "bypass_safety", pattern: /bypass\s+(?:security|safety|filters|restrictions|guardrails)/i },
@@ -120,8 +124,11 @@ const SECRET_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
 ];
 
 const EXFILTRATION_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
-  // Named-key exfil: markdown image URL whose query param key hints at data smuggling
-  { name: "markdown_image_exfil", pattern: /!\[.*?\]\(https?:\/\/[^)]*\?[^)]*(?:token|key|secret|data|q|payload|p|prompt|ctx|context|info|msg|body|session|conv)=/i },
+  // Named-key exfil: markdown image URL whose query param key hints at data smuggling.
+  // "token" is deliberately excluded — it's the overwhelmingly common key name for
+  // legitimate signed-CDN/cache-buster URLs (e.g. ?token=abc123...) and its presence
+  // alone is not a meaningful exfil signal (see false-positive test).
+  { name: "markdown_image_exfil", pattern: /!\[.*?\]\(https?:\/\/[^)]*\?[^)]*(?:key|secret|data|q|payload|p|prompt|ctx|context|info|msg|body|session|conv)=/i },
   // "Reprompt"-style exfil (CVE-2026-24307): markdown image with any long query-param value (≥30 chars).
   { name: "markdown_image_exfil_long_value", pattern: /!\[.*?\]\(https?:\/\/[^)]+\?[^)]*=[^)&]{30,}/ },
   // Markdown exfil using URL-encoded path separators (%2F=/,  %5C=\) in query values
@@ -129,7 +136,10 @@ const EXFILTRATION_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   { name: "tracking_pixel", pattern: /<img[^>]+src=["']https?:\/\/[^"']*\?[^"']*["'][^>]*(?:width|height)\s*=\s*["']?[01]px/i },
   { name: "encoded_url_exfil", pattern: /https?:\/\/[^\s]*(?:callback|webhook|exfil|collect)[^\s]*\?[^\s]*(?:data|payload|d)=/i },
   { name: "data_send_instruction", pattern: /send\s+(?:this|the|all)\s+(?:data|information|content|context)\s+to/i },
-  { name: "fetch_url", pattern: /(?:fetch|request|call|curl|wget)\s+https?:\/\//i },
+  // Fetching an arbitrary URL is mundane ("fetch https://api.example.com/pricing");
+  // only flag when the fetched URL itself carries an exfil-shaped query param,
+  // mirroring the markdown_image_exfil named-key convention above.
+  { name: "fetch_url", pattern: /(?:fetch|request|call|curl|wget)\s+https?:\/\/\S*[?&](?:token|key|secret|data|payload|prompt|ctx|context|session|conv|history)=/i },
 ];
 
 // SSRF attack surface detection — private/link-local IPs and dangerous URL schemes
@@ -143,7 +153,7 @@ const SSRF_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   // Gopher protocol — Redis/memcache SSRF smuggling
   { name: "gopher_scheme", pattern: /gopher:\/\//i },
   // Other dangerous non-HTTP schemes
-  { name: "dangerous_scheme", pattern: /(?:dict|ldap|ldaps|sftp|tftp|jar|netdoc):\/\//i },
+  { name: "dangerous_scheme", pattern: /(?:dict|ldap|ldaps|sftp|tftp|jar|netdoc|ftp):\/\//i },
 ];
 
 const PII_PATTERNS: Array<{ name: string; pattern: RegExp }> = [

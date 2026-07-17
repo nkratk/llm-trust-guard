@@ -122,7 +122,11 @@ export class OutputFilter {
       // get grouped inconsistently, e.g. "5555-555-555-5544-4"). BIN prefix
       // + Luhn (validate, below) together keep this from matching arbitrary
       // invoice/order/tracking numbers of similar shape.
-      pattern: /\b(?:4\d{3}|5[1-5]\d{2}|6011|65\d{2})(?:[-.\s]?\d){8,15}\b/g,
+      // BIN prefix covers Visa (4xxx), Mastercard legacy (5[1-5]xx) and
+      // current 2-series (2221-2720, added after adversarial review found
+      // real currently-issued Mastercard PANs like 2223... were invisible),
+      // and Discover (6011, 65xx, 644-649).
+      pattern: /\b(?:4\d{3}|5[1-5]\d{2}|2(?:22[1-9]|2[3-9]\d|[3-6]\d{2}|7[01]\d|720)|6011|65\d{2}|64[4-9]\d)(?:[-.\s]?\d){8,15}\b/g,
       maskAs: "[CREDIT_CARD]",
       validate: isValidLuhn,
     },

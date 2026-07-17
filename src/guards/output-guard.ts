@@ -99,13 +99,28 @@ const SQL_PATTERNS: Array<{ pattern: RegExp; label: string; severity: OutputThre
   { pattern: /--\s*$|\/\*.*?\*\//m, label: "SQL comment terminator", severity: "low" },
 ];
 
+// Destructive-verb allowlist shared by the "dangerous" substitution variants
+// below and the pre-existing chained-destructive-command pattern.
+const DESTRUCTIVE_SHELL_VERBS = "rm|curl|wget|nc|chmod|chown";
+
+// Shell metacharacter execution primitives are promoted to "critical" (blocks
+// standalone, even as the only threat found) only when the substitution body
+// itself contains a destructive verb — unlike iframe/markdown-exfil/event-
+// handler categories (left at "high", non-blocking alone by design, see
+// computeRiskScore). The *bare* backtick/$()-substitution patterns stay
+// "high": promoting them unconditionally to critical was tried and reverted
+// after adversarial testing found it blocked ordinary markdown code spans
+// (e.g. "Use `npm install` to set up the project.") which are commonplace in
+// LLM output and carry no risk on their own.
 const SHELL_PATTERNS: Array<{ pattern: RegExp; label: string; severity: OutputThreat["severity"] }> = [
   { pattern: /\$\([^)]+\)/, label: "command substitution $(...)", severity: "high" },
   { pattern: /`[^`]+`/, label: "backtick command substitution", severity: "high" },
+  { pattern: new RegExp(`\\$\\([^)]*\\b(?:${DESTRUCTIVE_SHELL_VERBS})\\b[^)]*\\)`, "i"), label: "command substitution $(...) with destructive verb", severity: "critical" },
+  { pattern: new RegExp("`[^`]*\\b(?:" + DESTRUCTIVE_SHELL_VERBS + ")\\b[^`]*`", "i"), label: "backtick command substitution with destructive verb", severity: "critical" },
   { pattern: /;\s*rm\s+-[rf]/i, label: ";rm -rf", severity: "critical" },
   { pattern: /(?:curl|wget)\b[^\n|]*\|\s*(?:ba)?sh\b/i, label: "curl|wget piped to shell", severity: "critical" },
   { pattern: /\|\s*(?:bash|sh|zsh|powershell|cmd)\b/i, label: "pipe to shell interpreter", severity: "high" },
-  { pattern: /&&\s*(?:rm|curl|wget|nc|chmod|chown)\b/i, label: "chained destructive command", severity: "high" },
+  { pattern: new RegExp(`&&\\s*(?:${DESTRUCTIVE_SHELL_VERBS})\\b`, "i"), label: "chained destructive command", severity: "critical" },
   { pattern: /\bIFS\s*=|\$\{IFS\}/, label: "IFS manipulation", severity: "medium" },
 ];
 
@@ -114,10 +129,53 @@ const MARKDOWN_IMAGE = /!\[[^\]]*\]\(\s*(https?:\/\/[^)\s]+)\s*\)/gi;
 /** Markdown link (for allowedDomains enforcement) */
 const MARKDOWN_LINK = /(?<!!)\[[^\]]*\]\(\s*(https?:\/\/[^)\s]+)\s*\)/gi;
 
+const HTML_ENTITY_NAMED: Record<string, string> = { lt: "<", gt: ">", amp: "&", quot: '"', apos: "'" };
+
+/**
+ * Decode URL-percent-encoding and HTML entities so payloads hidden behind
+ * either don't bypass HTML_PATTERNS/SQL_PATTERNS/SHELL_PATTERNS, which match
+ * directly against the raw string with no normalization step. No existing
+ * house helper covers HTML-entity decoding (InputSanitizer.buildInputVariants
+ * and OutputFilter.buildScanVariants both only handle URL/hex/base64/reverse).
+ */
+function decodeVariants(text: string): string[] {
+  const variants = new Set<string>();
+  const decodeEntities = (s: string): string =>
+    s.replace(/&(#x[0-9a-fA-F]+|#\d+|[a-zA-Z]+);/g, (full, ref: string) => {
+      if (ref[0] === "#") {
+        const codePoint = ref[1] === "x" || ref[1] === "X" ? parseInt(ref.slice(2), 16) : parseInt(ref.slice(1), 10);
+        try {
+          return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : full;
+        } catch {
+          return full;
+        }
+      }
+      return HTML_ENTITY_NAMED[ref] ?? full;
+    });
+  const entityDecoded = decodeEntities(text);
+  if (entityDecoded !== text) variants.add(entityDecoded);
+  if (text.includes("%")) {
+    try {
+      const urlDecoded = decodeURIComponent(text);
+      if (urlDecoded !== text) variants.add(urlDecoded);
+      const urlThenEntity = decodeEntities(urlDecoded);
+      if (urlThenEntity !== urlDecoded) variants.add(urlThenEntity);
+    } catch {
+      /* not URL-encoded, ignore */
+    }
+  }
+  return [...variants];
+}
+
 /** Spreadsheet formula-injection: a cell that starts with a formula trigger */
 const CSV_TRIGGER = /(?:^|[\n\r,;\t])\s*([=+\-@][^\n\r,;\t]{0,200})/g;
 /** Dangerous functions that make a leading + - @ unambiguously an attack */
 const CSV_DANGEROUS_FN = /\b(?:HYPERLINK|IMPORTXML|IMPORTDATA|IMPORTHTML|IMPORTFEED|IMPORTRANGE|WEBSERVICE|DDE|MSEXCEL)\b|cmd\s*\||^\s*=[\w.]+\s*\(/i;
+// Named exfil/command functions only (excludes CSV_DANGEROUS_FN's generic
+// "=word(...)" catch-all) — used to decide "critical" severity specifically.
+// Promoting the catch-all too would critically block ordinary spreadsheet
+// formulas like "=SUM(A1:A10)", which match it but aren't dangerous.
+const CSV_NAMED_DANGEROUS_FN = /\b(?:HYPERLINK|IMPORTXML|IMPORTDATA|IMPORTHTML|IMPORTFEED|IMPORTRANGE|WEBSERVICE|DDE|MSEXCEL)\b|cmd\s*\|/i;
 
 // --- Guard Implementation ---
 
@@ -154,9 +212,15 @@ export class OutputGuard {
       return { allowed: true, violations: [], riskScore: 0, threats: [] };
     }
 
-    if (this.config.detectHtml) this.match(output, HTML_PATTERNS, "html", threats, violations);
-    if (this.config.detectSql) this.match(output, SQL_PATTERNS, "sql", threats, violations);
-    if (this.config.detectShell) this.match(output, SHELL_PATTERNS, "shell", threats, violations);
+    // Scan the raw output plus URL/HTML-entity-decoded variants — HTML/SQL/
+    // SHELL patterns match literal syntax, so an encoded payload (e.g.
+    // &#x3c;script&#x3e; or %3Cscript%3E) would otherwise pass through
+    // untouched even though it renders identically once decoded downstream.
+    const scanTargets = [output, ...decodeVariants(output)];
+    const seen = new Set<string>();
+    if (this.config.detectHtml) for (const t of scanTargets) this.match(t, HTML_PATTERNS, "html", threats, violations, seen);
+    if (this.config.detectSql) for (const t of scanTargets) this.match(t, SQL_PATTERNS, "sql", threats, violations, seen);
+    if (this.config.detectShell) for (const t of scanTargets) this.match(t, SHELL_PATTERNS, "shell", threats, violations, seen);
     if (this.config.detectMarkdownExfil) this.detectMarkdownExfil(output, threats, violations);
     if (this.config.detectCsvFormula) this.detectCsvFormula(output, threats, violations);
 
@@ -183,12 +247,16 @@ export class OutputGuard {
     patterns: Array<{ pattern: RegExp; label: string; severity: OutputThreat["severity"] }>,
     sink: OutputSink,
     threats: OutputThreat[],
-    violations: string[]
+    violations: string[],
+    seen: Set<string>
   ): void {
     for (const { pattern, label, severity } of patterns) {
+      const dedupeKey = `${sink}:${label}`;
+      if (seen.has(dedupeKey)) continue;
       if (pattern.test(output)) {
+        seen.add(dedupeKey);
         threats.push({ sink, type: `${sink}_payload`, detail: `Detected ${label}`, severity });
-        violations.push(`${sink}:${label}`);
+        violations.push(dedupeKey);
       }
     }
   }
@@ -228,8 +296,15 @@ export class OutputGuard {
       const leader = cell[0];
       // A cell starting with '=' is always a formula; +,-,@ only flag with a
       // dangerous function (avoids flagging "-5", "+1", "@mention", "- bullet").
+      // A cell invoking a *named* data-exfil/command function (HYPERLINK,
+      // cmd|, ...) is promoted to critical — an ordinary formula like
+      // "=SUM(A1:A10)" also matches CSV_DANGEROUS_FN's generic "=word("
+      // catch-all but must stay "high", not critical (fixed dead ternary:
+      // previously this branch could never be reached since it was gated by
+      // the same condition it re-tested).
       if (leader === "=" || CSV_DANGEROUS_FN.test(cell)) {
-        threats.push({ sink: "csv", type: "csv_formula_injection", detail: `Cell begins with formula trigger "${leader}": ${cell.slice(0, 40)}`, severity: leader === "=" || CSV_DANGEROUS_FN.test(cell) ? "high" : "medium" });
+        const namedDangerous = CSV_NAMED_DANGEROUS_FN.test(cell);
+        threats.push({ sink: "csv", type: "csv_formula_injection", detail: `Cell begins with formula trigger "${leader}": ${cell.slice(0, 40)}`, severity: namedDangerous ? "critical" : "high" });
         violations.push(`csv:formula:${leader}`);
       }
     }

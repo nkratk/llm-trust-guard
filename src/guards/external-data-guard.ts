@@ -104,7 +104,16 @@ const INJECTION_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   { name: "path_traversal_hex", pattern: /(?:2e2e2f){2,}|(?:2e2e5c){2,}/i },
   { name: "office_xml_script", pattern: /<(?:office|o):\w+[^>]*>[\s\S]*?<script/i },
   { name: "rtf_ole_object", pattern: /\\object\\obj(?:emb|link|auto)|\\objdata\s/i },
-  { name: "html_comment_directive", pattern: /<!--\s*(?:BOT|AGENT|ASSISTANT|AI|LLM)\s*:\s*(?:execute|run|call|invoke|perform|fetch|send|ignore|bypass|forget|override|disregard|print|reveal|output|delete|drop)\b/i },
+  // Bounded filler-word tolerance (up to 2 of a fixed set of polite/temporal
+  // fillers) between the colon and the action verb — was previously an exact
+  // adjacency requirement (":\s*verb"), which real jailbreak payloads evade
+  // trivially by inserting "please"/"now"/"you should" etc. An unbounded
+  // "\s+\w+" wildcard was considered and rejected: this pattern's verb
+  // requirement was itself added in v4.25.0 specifically to fix a moderate
+  // FPR on AI-provenance comments like "<!-- AI: generated -->" (see
+  // tests/adversarial/RESULTS-v4.25.0.md) — an unbounded gap would reopen
+  // that class of false positive.
+  { name: "html_comment_directive", pattern: /<!--\s*(?:BOT|AGENT|ASSISTANT|AI|LLM)\s*:\s*(?:(?:please|now|then|kindly|quietly|you\s+should|go\s+ahead\s+and)\s+){0,2}(?:execute|run|call|invoke|perform|fetch|send|ignore|bypass|forget|override|disregard|print|reveal|output|delete|drop)\b/i },
   { name: "embedded_tool_call", pattern: /<tool[_-]?call[^>]*>|<\/tool[_-]?call>/i },
   { name: "langchain_gadget", pattern: /\{["']lc["']\s*:\s*[12]\s*,\s*["']type["']\s*:\s*["'](?:constructor|secret|not_implemented)/i },
   { name: "email_agent_directive", pattern: /<!--\s*(?:assistant|system)\s*:\s*execute\s+tool/i },

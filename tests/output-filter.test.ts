@@ -103,4 +103,44 @@ describe("OutputFilter", () => {
       expect(result.filtered_response.name).toBe("Widget");
     });
   });
+
+  describe("Fix batch regressions", () => {
+    it("detects unformatted/dash phone numbers, not just parenthesized ones", () => {
+      const f = new OutputFilter();
+      expect(f.filter("Call 415-555-2671 now").pii_detected.some((p) => p.type === "phone_us")).toBe(true);
+      expect(f.filter("Call 4155552671 now").pii_detected.some((p) => p.type === "phone_us")).toBe(true);
+    });
+
+    it("detects 'password is: X' phrasing", () => {
+      const f = new OutputFilter();
+      const r = f.filter("password is: mysecretpass123");
+      expect(r.secrets_detected.some((s) => s.type === "password")).toBe(true);
+    });
+
+    it("does not flag a dotted number with an out-of-range octet as an IP address", () => {
+      const f = new OutputFilter();
+      const r = f.filter("Error code 999.999.999.999 invalid");
+      expect(r.pii_detected.some((p) => p.type === "ip_address")).toBe(false);
+    });
+
+    it("detects a Luhn-valid credit card with non-4-4-4-4 grouping", () => {
+      const f = new OutputFilter();
+      const pan = "5555555555554444";
+      const irregular = `${pan.slice(0, 5)}-${pan.slice(5, 10)}-${pan.slice(10, 13)}-${pan.slice(13)}`;
+      const r = f.filter(`Card: ${irregular}`);
+      expect(r.pii_detected.some((p) => p.type === "credit_card")).toBe(true);
+    });
+
+    it("does not flag a Luhn-invalid digit run as a credit card", () => {
+      const f = new OutputFilter();
+      const r = f.filter("Order reference 4123456789012345"); // Visa-shaped BIN, fails Luhn
+      expect(r.pii_detected.some((p) => p.type === "credit_card")).toBe(false);
+    });
+
+    it("detects a Mastercard 2-series (2221-2720) PAN", () => {
+      const f = new OutputFilter();
+      const r = f.filter("Card: 2223 0031 2200 3222");
+      expect(r.pii_detected.some((p) => p.type === "credit_card")).toBe(true);
+    });
+  });
 });

@@ -31,6 +31,32 @@ export interface PIIPattern {
   name: string;
   pattern: RegExp;
   maskAs?: string; // e.g., "[EMAIL]", "[SSN]"
+  /** Optional secondary check a regex match must also pass (e.g. Luhn checksum). */
+  validate?: (matchedText: string) => boolean;
+}
+
+/**
+ * Standard Luhn checksum, used to gate the credit_card pattern. A loosened
+ * digit-shape regex alone false-positives on invoice/order/tracking numbers
+ * (and, via buildScanVariants' reversed-string scan, on coincidental
+ * BIN-prefix-shaped digit runs) — Luhn cuts that surface the same way real
+ * credit-card detectors do, without needing a stricter/narrower regex.
+ */
+function isValidLuhn(matchedText: string): boolean {
+  const digits = matchedText.replace(/\D/g, "");
+  if (digits.length < 12 || digits.length > 19) return false;
+  let sum = 0;
+  let double = false;
+  for (let i = digits.length - 1; i >= 0; i--) {
+    let d = digits.charCodeAt(i) - 48;
+    if (double) {
+      d *= 2;
+      if (d > 9) d -= 9;
+    }
+    sum += d;
+    double = !double;
+  }
+  return sum % 10 === 0;
 }
 
 export interface SecretPattern {
@@ -76,7 +102,12 @@ export class OutputFilter {
     },
     {
       name: "phone_us",
-      pattern: /\b(?:\+1[-.\s]?)?\(?\d{3}\)[-.\s]?\d{3}[-.\s]?\d{4}\b/g,
+      // NANP area/exchange codes never start with 0/1, used here (rather than a
+      // paired-parens group) to catch unformatted/dash/dot numbers too — a
+      // symmetric \(?...\)? group can't match "(415) 555-2671" because \b can't
+      // land between whitespace and "(" (two non-word chars), so the match
+      // start shifts past the paren entirely and the alternative is unreachable.
+      pattern: /\b(?:\+1[-.\s]?)?\(?[2-9]\d{2}\)?[-.\s]?[2-9]\d{2}[-.\s]?\d{4}\b/g,
       maskAs: "[PHONE]",
     },
     {
@@ -86,8 +117,14 @@ export class OutputFilter {
     },
     {
       name: "credit_card",
-      pattern: /\b(?:\d{4}[-.\s]?){3}\d{4}\b/g,
+      // Visa/Mastercard/Discover BIN-prefixed, 12-19 digits total, with
+      // separators anywhere — not just rigid 4-4-4-4 grouping (real numbers
+      // get grouped inconsistently, e.g. "5555-555-555-5544-4"). BIN prefix
+      // + Luhn (validate, below) together keep this from matching arbitrary
+      // invoice/order/tracking numbers of similar shape.
+      pattern: /\b(?:4\d{3}|5[1-5]\d{2}|6011|65\d{2})(?:[-.\s]?\d){8,15}\b/g,
       maskAs: "[CREDIT_CARD]",
+      validate: isValidLuhn,
     },
     {
       name: "credit_card_amex",
@@ -96,7 +133,12 @@ export class OutputFilter {
     },
     {
       name: "ip_address",
-      pattern: /\b(?:\d{1,3}\.){3}\d{1,3}\b/g,
+      // Bound each octet 0-255 so obviously-invalid shapes (e.g. version
+      // strings with an octet >255) are excluded. This is a partial fix only:
+      // a dotted-numeric string whose every component happens to be a valid
+      // octet (e.g. "10.4.32.3") is inherently ambiguous with a real IPv4
+      // address by shape alone — full disambiguation needs context, not regex.
+      pattern: /\b(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}\b/g,
       maskAs: "[IP_ADDRESS]",
     },
     {
@@ -134,7 +176,10 @@ export class OutputFilter {
     },
     {
       name: "password",
-      pattern: /(?:password|passwd|pwd)\s*(?:[=:]|is)\s*["']?[^\s"']{6,}["']?/gi,
+      // Optional "is" before the separator so combined phrasing ("password
+      // is: X") matches too — previously "is" and ":"/"=" were mutually
+      // exclusive alternatives that couldn't compose.
+      pattern: /(?:password|passwd|pwd)\s*(?:is\s*)?(?:[=:]|is)\s*["']?[^\s"']{6,}["']?/gi,
       severity: "critical",
     },
     {
@@ -333,14 +378,17 @@ export class OutputFilter {
       for (const target of scanTargets) {
         for (const pattern of this.config.piiPatterns!) {
           if (detectedPII.has(pattern.name)) continue;
-          const matches = target.match(pattern.pattern);
+          let matches: string[] | null = target.match(pattern.pattern);
+          if (matches && pattern.validate) {
+            matches = matches.filter((m) => pattern.validate!(m));
+          }
           if (matches && matches.length > 0) {
             detectedPII.add(pattern.name);
             piiDetections.push({
               type: pattern.name,
               count: matches.length,
               masked: true,
-              locations: this.findLocations(target, pattern.pattern),
+              locations: this.findLocations(target, pattern.pattern, pattern.validate),
             });
             violations.push(`PII_DETECTED_${pattern.name.toUpperCase()}`);
           }
@@ -388,9 +436,9 @@ export class OutputFilter {
     // Mask PII in output
     if (this.config.detectPII && typeof filteredOutput === "string") {
       for (const pattern of this.config.piiPatterns!) {
-        filteredOutput = filteredOutput.replace(
-          pattern.pattern,
-          pattern.maskAs || this.generateMask(8)
+        const mask = pattern.maskAs || this.generateMask(8);
+        filteredOutput = filteredOutput.replace(pattern.pattern, (m: string) =>
+          pattern.validate && !pattern.validate(m) ? m : mask
         );
       }
     } else if (typeof filteredOutput === "object" && filteredOutput !== null) {
@@ -517,11 +565,14 @@ export class OutputFilter {
   ): string {
     let result = str;
     for (const pattern of this.config.piiPatterns!) {
-      const matches = result.match(pattern.pattern);
+      let matches: string[] | null = result.match(pattern.pattern);
+      if (matches && pattern.validate) {
+        matches = matches.filter((m) => pattern.validate!(m));
+      }
       if (matches && matches.length > 0) {
-        result = result.replace(
-          pattern.pattern,
-          pattern.maskAs || this.generateMask(8)
+        const mask = pattern.maskAs || this.generateMask(8);
+        result = result.replace(pattern.pattern, (m: string) =>
+          pattern.validate && !pattern.validate(m) ? m : mask
         );
       }
     }
@@ -535,12 +586,12 @@ export class OutputFilter {
     return this.config.maskingChar!.repeat(8);
   }
 
-  private findLocations(text: string, pattern: RegExp): string[] {
+  private findLocations(text: string, pattern: RegExp, validate?: (m: string) => boolean): string[] {
     const locations: string[] = [];
     let match;
     const regex = new RegExp(pattern.source, pattern.flags);
     while ((match = regex.exec(text)) !== null) {
-      locations.push(`index:${match.index}`);
+      if (!validate || validate(match[0])) locations.push(`index:${match.index}`);
       if (!pattern.flags.includes("g")) break;
     }
     return locations;

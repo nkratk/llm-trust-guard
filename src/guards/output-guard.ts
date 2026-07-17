@@ -103,20 +103,21 @@ const SQL_PATTERNS: Array<{ pattern: RegExp; label: string; severity: OutputThre
 // below and the pre-existing chained-destructive-command pattern.
 const DESTRUCTIVE_SHELL_VERBS = "rm|curl|wget|nc|chmod|chown";
 
-// Shell metacharacter execution primitives are promoted to "critical" (blocks
-// standalone, even as the only threat found) only when the substitution body
-// itself contains a destructive verb — unlike iframe/markdown-exfil/event-
-// handler categories (left at "high", non-blocking alone by design, see
-// computeRiskScore). The *bare* backtick/$()-substitution patterns stay
-// "high": promoting them unconditionally to critical was tried and reverted
-// after adversarial testing found it blocked ordinary markdown code spans
-// (e.g. "Use `npm install` to set up the project.") which are commonplace in
-// LLM output and carry no risk on their own.
+// Shell metacharacter execution primitives: bare backtick/$()-substitution
+// stays "high" (non-blocking alone), same as before this fix batch. Gating a
+// "critical" promotion on the substitution body containing a destructive verb
+// (rm/curl/wget/...) was tried, but reverted after adversarial testing found
+// no reliable way to distinguish an actual dangerous substitution from an
+// ordinary documentation code span showing the same command — both
+// "`rm -rf /`" (malicious) and "`curl -O https://example.com/file.zip`"
+// (a completely normal tutorial instruction) have the identical syntactic
+// shape, and the latter got critically blocked under the gated version.
+// Distinguishing these needs actual execution-context signals (e.g. embedded
+// inside a larger command string, not standing alone), which is out of scope
+// for a pattern-severity fix.
 const SHELL_PATTERNS: Array<{ pattern: RegExp; label: string; severity: OutputThreat["severity"] }> = [
   { pattern: /\$\([^)]+\)/, label: "command substitution $(...)", severity: "high" },
   { pattern: /`[^`]+`/, label: "backtick command substitution", severity: "high" },
-  { pattern: new RegExp(`\\$\\([^)]*\\b(?:${DESTRUCTIVE_SHELL_VERBS})\\b[^)]*\\)`, "i"), label: "command substitution $(...) with destructive verb", severity: "critical" },
-  { pattern: new RegExp("`[^`]*\\b(?:" + DESTRUCTIVE_SHELL_VERBS + ")\\b[^`]*`", "i"), label: "backtick command substitution with destructive verb", severity: "critical" },
   { pattern: /;\s*rm\s+-[rf]/i, label: ";rm -rf", severity: "critical" },
   { pattern: /(?:curl|wget)\b[^\n|]*\|\s*(?:ba)?sh\b/i, label: "curl|wget piped to shell", severity: "critical" },
   { pattern: /\|\s*(?:bash|sh|zsh|powershell|cmd)\b/i, label: "pipe to shell interpreter", severity: "high" },

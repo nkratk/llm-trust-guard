@@ -107,7 +107,10 @@ export class PromptLeakageGuard {
 
     // Remember-the-Start attacks - ENHANCED
     { name: "complete_sentence", pattern: /complete\s+(this\s+|the\s+)?sentence/i, weight: 50 },
-    { name: "complete_you_are", pattern: /complete[:\s]+"?'?you\s+are/i, weight: 55 },
+    // Tolerates an optional filler word ("this"/"that"/"it") between "complete"
+    // and the colon/quote — "Complete this: you are a..." is a natural phrasing
+    // of the Remember-the-Start attack that the original rigid adjacency missed.
+    { name: "complete_you_are", pattern: /complete\s*(?:this|that|it)?\s*[:\s]+"?'?you\s+are/i, weight: 55 },
     { name: "continue_from", pattern: /continue\s+(from|with)[:\s]/i, weight: 50 },
     { name: "continue_role", pattern: /continue[:\s]+"?'?(you|your)\s+(are|role|purpose)/i, weight: 55 },
     { name: "finish_phrase", pattern: /finish\s+(this\s+)?phrase/i, weight: 50 },

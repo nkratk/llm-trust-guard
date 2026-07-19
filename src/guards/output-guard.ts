@@ -222,6 +222,7 @@ export class OutputGuard {
     if (this.config.detectHtml) for (const t of scanTargets) this.match(t, HTML_PATTERNS, "html", threats, violations, seen);
     if (this.config.detectSql) for (const t of scanTargets) this.match(t, SQL_PATTERNS, "sql", threats, violations, seen);
     if (this.config.detectShell) for (const t of scanTargets) this.match(t, SHELL_PATTERNS, "shell", threats, violations, seen);
+    if (this.config.detectShell) this.dedupeNestedShellSubstitution(output, threats, violations);
     if (this.config.detectMarkdownExfil) this.detectMarkdownExfil(output, threats, violations);
     if (this.config.detectCsvFormula) this.detectCsvFormula(output, threats, violations);
 
@@ -260,6 +261,36 @@ export class OutputGuard {
         violations.push(dedupeKey);
       }
     }
+  }
+
+  /**
+   * "`$(cmd)`" (a $() substitution wrapped in backticks — the standard way to
+   * show inline shell syntax in markdown/docs, e.g. "In bash, `$(date)`
+   * returns...") independently matches BOTH the backtick pattern and the
+   * $(...) pattern, double-counting one syntactic construct as two "high"
+   * (0.45 each) threats that sum to 0.9 and cross the 0.7 block threshold —
+   * an ordinary shell-syntax doc mention shouldn't auto-block. If every
+   * $(...) occurrence in the output falls entirely inside a backtick span,
+   * drop the redundant $(...) threat and keep only the backtick one (a
+   * standalone $(...) with no backtick wrapping anywhere in the output is
+   * unaffected and still counted normally).
+   */
+  private dedupeNestedShellSubstitution(output: string, threats: OutputThreat[], violations: string[]): void {
+    const dollarKey = "shell:command substitution $(...)";
+    if (!violations.includes(dollarKey)) return;
+    const backtickSpans: Array<[number, number]> = [];
+    for (const m of output.matchAll(/`[^`]+`/g)) backtickSpans.push([m.index!, m.index! + m[0].length]);
+    if (backtickSpans.length === 0) return;
+    const dollarMatches = [...output.matchAll(/\$\([^)]+\)/g)];
+    if (dollarMatches.length === 0) return;
+    const allNested = dollarMatches.every((m) =>
+      backtickSpans.some(([start, end]) => m.index! >= start && m.index! + m[0].length <= end)
+    );
+    if (!allNested) return;
+    const idx = violations.indexOf(dollarKey);
+    if (idx !== -1) violations.splice(idx, 1);
+    const tIdx = threats.findIndex((t) => t.sink === "shell" && t.detail === "Detected command substitution $(...)");
+    if (tIdx !== -1) threats.splice(tIdx, 1);
   }
 
   private detectMarkdownExfil(output: string, threats: OutputThreat[], violations: string[]): void {

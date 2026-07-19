@@ -26,6 +26,12 @@ Found via a live-verify adversarial sweep against the published package (beyond 
 
 Known, documented remaining gaps: `PromptLeakageGuard` issue #16's paraphrase-evasion and generic-boilerplate-false-positive scenarios are not solvable with a lexical (non-semantic) similarity metric; `OutputGuard` issue #12's decode step is single-layer only (matches existing decode helpers elsewhere in the codebase, doesn't handle double-encoding); `ExternalDataGuard` issue #5 (AGENT-directive filler tolerance) and the `fetch_url`/`markdown_image_exfil` narrowing in #7 remain unfixed after being reverted (see above).
 
+### Added
+
+- New permanent regression suite `tests/guard-adversarial-sweep.test.ts` — curated benign/attack sweep across all 5 guards touched by this batch (mirrors the existing `tests/benign-context.test.ts` template). Built specifically because the existing ~900-test suite never caught any of the above bugs or their fix-batch regressions — it only encodes what the original author already thought to test. This new file found 2 more real bugs on first use before it was even finished:
+  - `OutputGuard`: a `$(...)` substitution wrapped in backticks (`` `$(date)` `` — the standard way to show inline shell syntax in docs) independently matched both the backtick pattern and the `$(...)` pattern, double-counting one syntactic construct into two "high" (0.45 each) threats that summed to 0.9 and crossed the block threshold. Fixed with a dedup pass: when every `$(...)` occurrence in the output falls entirely inside a backtick span, only the backtick threat is kept.
+  - `PromptLeakageGuard`: `complete_you_are` required "complete" immediately adjacent to a colon/quote before "you are", missing the natural phrasing "Complete this: you are a...". Now tolerates an optional filler word (this/that/it) in between.
+
 ## [4.32.2] - 2026-07-08
 
 ### Fixed

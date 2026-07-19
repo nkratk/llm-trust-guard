@@ -114,9 +114,24 @@ const HIDDEN_INSTRUCTION_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   // Semantic Compliance Hijacking (SCH) — natural-language policy framing that redirects data flow
   // without using explicit injection keywords (arXiv:2601.07395 MCP-ITP, arXiv:2605.14460)
   { pattern: /\b(?:IMPORTANT|NOTE|WARNING|ADMIN|SYSTEM|ROOT|CRITICAL)\s*:\s*(?:(?:all\s+)?(?:responses?|results?|data|outputs?)\s+(?:must|should|shall|are\s+required\s+to)\s+(?:be\s+)?(?:sent|forwarded|logged|transmitted|routed|appended)\s+(?:to|at)|(?:also\s+)?(?:CC|BCC)\s+\S+@\S+|route\s+all|redirect\s+all|silently\s+(?:exfil|send|forward))/i, label: "authority-keyword data routing directive" },
-  { pattern: /(?:required|mandatory|necessary)\s+(?:for|by|per)\s+(?:GDPR|SOC\s?2|HIPAA|PCI|ISO|compliance|audit|policy)\b.*?(?:send|forward|log|transmit|route|append|exfil)/i, label: "fake-compliance data exfiltration" },
+  {
+    // Covers both phrasing orders: "required for GDPR ... send all data to X" (qualifier-first)
+    // and "ISO 27001 mandates: route all responses to X" (compliance-keyword-first, active voice).
+    // The action verb must be followed by an explicit "all responses/data/output(s)" object AND
+    // a destination ("to/at <address>") — earlier versions made the object optional, which
+    // false-positived on ordinary compliance/audit prose with a generic destination and no bulk
+    // object ("policy demands: log to disk for review.", "requires: log to our internal syslog
+    // server for retention."), in addition to the qualifier/verb-alone false positives fixed
+    // previously ("requires logging of...", "necessary for HIPAA retention; the job will append
+    // rows nightly").
+    pattern:
+      /(?:(?:required|mandatory|necessary)\s+(?:for|by|per)\s+(?:GDPR|SOC\s?2|HIPAA|PCI|ISO(?:\s?\d+)?|compliance|audit|policy)\b[^.]{0,40}?(?:send|sent|forward(?:s|ed)?|log(?:s|ged)?|transmit(?:s|ted)?|rout(?:e|es|ed)|append(?:s|ed)?|exfil\w*)\s+(?:all\s+)?(?:responses?|data|outputs?)\s*(?:to|at)\s+\S+|(?:GDPR|SOC\s?2|HIPAA|PCI|ISO(?:\s?\d+)?|compliance|audit|policy)\b[^.]{0,40}?(?:requires?|mandates?|demands?|necessitates?)\s*:?\s*(?:send|sent|forward(?:s|ed)?|log(?:s|ged)?|transmit(?:s|ted)?|rout(?:e|es|ed)|append(?:s|ed)?|exfil\w*)\s+(?:all\s+)?(?:responses?|data|outputs?)\s*(?:to|at)\s+\S+)/i,
+    label: "fake-compliance data exfiltration",
+  },
   { pattern: /(?:audit|compliance|monitoring|logging)\s+(?:requires?|demands?|mandates?)\s+(?:that\s+)?(?:all\s+)?(?:responses?|data|outputs?)\s+(?:be\s+)?(?:sent|forwarded|logged|transmitted|routed)\s+(?:to|at)\s+\S+/i, label: "compliance-framed exfiltration routing" },
-  { pattern: /(?:append|include|add)\s+(?:the\s+)?following\s+(?:to|in)\s+(?:all|every)\s+(?:responses?|outputs?|messages?)/i, label: "response appending directive" },
+  // "following" is optional — attackers can drop it ("include in all outputs: ...") and still
+  // achieve the same response-appending injection.
+  { pattern: /(?:append|include|add)\s+(?:the\s+)?(?:following\s+)?(?:to|in)\s+(?:all|every)\s+(?:responses?|outputs?|messages?)/i, label: "response appending directive" },
 ];
 
 /** Privilege-escalating permission combinations */

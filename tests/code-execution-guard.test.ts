@@ -44,6 +44,40 @@ result = subprocess.run(["ls", "-la"], capture_output=True)
     expect(result.violations.some((v) => v.includes("subprocess"))).toBe(true);
   });
 
+  it("should detect a Python object-introspection gadget chain reaching os.popen", () => {
+    const code =
+      "().__class__.__bases__[0].__subclasses__()[133].__init__.__globals__['sys'].modules['os'].popen('id').read()";
+    const result = guard.analyze(code, "python");
+    expect(result.allowed).toBe(false);
+    expect(result.violations.some((v) => v.includes("sandbox_escape_gadget"))).toBe(true);
+  });
+
+  it("should detect a bare __subclasses__/__mro__ walk with no other dangerous keywords", () => {
+    const code = "x.__class__.__mro__[1].__subclasses__()";
+    const result = guard.analyze(code, "python");
+    expect(result.allowed).toBe(false);
+    expect(result.violations.some((v) => v.includes("sandbox_escape_gadget"))).toBe(true);
+  });
+
+  it("should detect .mro() combined with another gadget token", () => {
+    const result = guard.analyze("type(x).mro()[0].__subclasses__()", "python");
+    expect(result.allowed).toBe(false);
+    expect(result.violations.some((v) => v.includes("sandbox_escape_gadget"))).toBe(true);
+  });
+
+  it("should NOT flag a single gadget token alone (common in legitimate code)", () => {
+    expect(guard.analyze("class PluginRegistry:\n    def discover(self):\n        return PluginBase.__subclasses__()", "python").allowed).toBe(true);
+    expect(guard.analyze("class MyPickleable:\n    def __reduce__(self):\n        return (MyPickleable, ())", "python").allowed).toBe(true);
+    expect(guard.analyze("for cls in object.__subclasses__():\n    print(cls.__name__)", "python").allowed).toBe(true);
+    expect(guard.analyze("type(x).mro()", "python").allowed).toBe(true);
+  });
+
+  it("should NOT flag two distinct gadget tokens used far apart in unrelated functions", () => {
+    const code =
+      "def get_all_subclasses(cls):\n    for subclass in cls.__subclasses__():\n        yield subclass\ndef method_resolution_order(cls):\n    return cls.__mro__";
+    expect(guard.analyze(code, "python").allowed).toBe(true);
+  });
+
   it("should block a disallowed language", () => {
     const result = guard.analyze("puts 'hello world'", "ruby");
     expect(result.allowed).toBe(false);

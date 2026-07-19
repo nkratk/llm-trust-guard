@@ -77,6 +77,14 @@ export interface OutputLeakageResult {
 export class PromptLeakageGuard {
   private config: Required<PromptLeakageGuardConfig>;
 
+  // A trailing-buffer across checkOutput() calls (to catch a leak split mid-
+  // word between two streamed chunks) was tried and reverted — adversarial
+  // review found it causes cross-request contamination on a long-lived guard
+  // instance: content from one, unrelated checkOutput() call could combine
+  // with a later, unrelated call's content to produce a false leak. checkOutput
+  // stays stateless; the streaming-split gap this would have closed remains
+  // open (a caller wanting that needs to buffer chunks itself before calling).
+
   // Direct extraction patterns
   private readonly DIRECT_EXTRACTION_PATTERNS: Array<{ name: string; pattern: RegExp; weight: number }> = [
     // Direct system prompt requests
@@ -89,14 +97,20 @@ export class PromptLeakageGuard {
 
     // PLeak-style attacks
     { name: "repeat_after_me", pattern: /repeat\s+after\s+me|repeat[:\s]+"?'?(?:my|your|the)\s+(?:instructions|rules|prompt)/i, weight: 50 },
-    { name: "repeat_above", pattern: /repeat\s+(the\s+)?(text|content|message)\s+(above|before)/i, weight: 50 },
+    // "everything" is only paired with "above" (not "before") — "before" is
+    // too temporally generic on its own ("repeat everything before we got
+    // cut off" is an ordinary phone-call request, adversarial review found).
+    { name: "repeat_above", pattern: /repeat\s+(?:everything\s+above|all(?:\s+the)?\s+(?:text|content|message)\s+(?:above|before)|the\s+(?:text|content|message)\s+(?:above|before))/i, weight: 50 },
     { name: "output_previous", pattern: /output\s+(all\s+)?(previous|prior)\s+(text|content|instructions)/i, weight: 50 },
     { name: "echo_everything", pattern: /echo\s+(everything|all)(\s+(above|before|prior|that|said))?/i, weight: 50 },
     { name: "echo_said", pattern: /echo\s+.*(said|was|before|that)/i, weight: 45 },
 
     // Remember-the-Start attacks - ENHANCED
     { name: "complete_sentence", pattern: /complete\s+(this\s+|the\s+)?sentence/i, weight: 50 },
-    { name: "complete_you_are", pattern: /complete[:\s]+"?'?you\s+are/i, weight: 55 },
+    // Tolerates an optional filler word ("this"/"that"/"it") between "complete"
+    // and the colon/quote — "Complete this: you are a..." is a natural phrasing
+    // of the Remember-the-Start attack that the original rigid adjacency missed.
+    { name: "complete_you_are", pattern: /complete\s*(?:this|that|it)?\s*[:\s]+"?'?you\s+are/i, weight: 55 },
     { name: "continue_from", pattern: /continue\s+(from|with)[:\s]/i, weight: 50 },
     { name: "continue_role", pattern: /continue[:\s]+"?'?(you|your)\s+(are|role|purpose)/i, weight: 55 },
     { name: "finish_phrase", pattern: /finish\s+(this\s+)?phrase/i, weight: 50 },
@@ -104,7 +118,7 @@ export class PromptLeakageGuard {
 
     // Instruction extraction
     { name: "list_constraints", pattern: /list\s+(all\s+)?(your\s+)?constraints/i, weight: 35 },
-    { name: "what_told", pattern: /what\s+(were\s+you|are\s+you)\s+told\s+to\s+do/i, weight: 40 },
+    { name: "what_told", pattern: /what\s+(were\s+you|are\s+you)\s+told\s+(?:to\s+do|before\s+(?:this\s+)?conversation\s+started)/i, weight: 40 },
     { name: "original_purpose", pattern: /what\s+(is|was)\s+your\s+original\s+purpose/i, weight: 35 },
     { name: "instructions_followed", pattern: /(?:summarize|describe|list|tell\s+me)\s+(?:the\s+)?instructions\s+you\s+(?:just\s+)?(?:followed|received|were\s+given)/i, weight: 40 },
     { name: "how_you_work", pattern: /(?:manual|document|guide|explanation)\s+(?:on|about|of)\s+how\s+you\s+work/i, weight: 35 },
@@ -125,8 +139,19 @@ export class PromptLeakageGuard {
 
     // Context window manipulation
     { name: "first_message", pattern: /what\s+was\s+(the\s+)?first\s+message/i, weight: 45 },
+    { name: "first_sentence_of_prompt", pattern: /what(?:'s|\s+is|\s+was)\s+the\s+first\s+(?:sentence|line|word)\s+of\s+your\s+(?:prompt|instructions|system\s+prompt)/i, weight: 45 },
     { name: "beginning_context", pattern: /what('s|\s+is)\s+at\s+the\s+beginning\s+of\s+(your\s+)?context/i, weight: 50 },
+    // "conversation started/began" (without requiring the "content at the
+    // start" framing) was tried and reverted — "tell me when this
+    // conversation began, for my timesheet" is an ordinary, common question
+    // about timing, not extraction intent; the ambiguity isn't resolvable
+    // by regex without an AI/content-specific qualifier.
     { name: "beginning_conversation", pattern: /(?:what|tell\s+me)\s+.*(?:beginning|start)\s+of\s+(?:this\s+)?conversation/i, weight: 45 },
+    // Scoped to "prompt" specifically (not instructions/rules/guidelines):
+    // "translate your instructions into Spanish" is indistinguishable from
+    // an ordinary request to translate a recipe/manual's instructions;
+    // "prompt" is a much stronger, rarely-benign signal in this construction.
+    { name: "translate_instructions", pattern: /translate\s+your\s+prompt\s+into/i, weight: 40 },
     { name: "what_told_beginning", pattern: /what\s+did\s+I\s+tell\s+you\s+at\s+the\s+beginning/i, weight: 50 },
     { name: "context_start", pattern: /show\s+(me\s+)?the\s+start\s+of\s+(your\s+)?context/i, weight: 50 },
   ];
@@ -134,6 +159,11 @@ export class PromptLeakageGuard {
   // Indirect extraction patterns
   private readonly INDIRECT_EXTRACTION_PATTERNS: Array<{ name: string; pattern: RegExp; weight: number }> = [
     // Summarization tricks
+    // Adding "instructions" to this noun list was tried and reverted —
+    // "summarize your instructions for assembling the bookshelf" is
+    // indistinguishable from "summarize your instructions [for the AI]" by
+    // regex; "instructions" alone is far too common in mundane (recipe,
+    // assembly, work) contexts, unlike guidelines/rules/constraints.
     { name: "summarize_guidelines", pattern: /summarize\s+(your\s+)?(guidelines|rules|constraints)/i, weight: 35 },
     { name: "describe_limitations", pattern: /describe\s+(your\s+)?limitations/i, weight: 30 },
 
@@ -420,13 +450,30 @@ export class PromptLeakageGuard {
       }
     }
 
-    // Calculate similarity if hash provided
-    let similarityScore = 0;
-    // In production, you'd compare against actual system prompt hash
-    // For now, we check fragment density
-    similarityScore = potentialFragments.length / 10; // Rough heuristic
+    // Real lexical (token-Jaccard) similarity between the output and the
+    // configured system-prompt keywords — replaces the previous fake metric
+    // (potentialFragments.length / 10, which wasn't a similarity measure at
+    // all and ignored config.similarityThreshold entirely). Deliberately
+    // built from ONLY systemPromptKeywords, not matched fragments: including
+    // fragments was tried and reverted after adversarial review found it's
+    // self-referential (a fragment matched FROM scanText is by construction
+    // a near-total token subset of scanText), so any single short fragment
+    // match alone inflated similarity to ~1.0 and false-positived on short,
+    // generic replies ("Your role is to teach." with zero configured
+    // keywords). This is still a lightweight lexical heuristic, not
+    // semantic/embedding-based similarity: it won't reliably catch a fully
+    // reworded paraphrase that shares no vocabulary with the configured
+    // keywords. Operators wanting stronger false-positive resistance should
+    // keep systemPromptKeywords narrow and distinctive (e.g. a project-
+    // specific phrase) rather than generic boilerplate ("helpful assistant")
+    // that legitimately recurs in unrelated output.
+    const referenceText = this.config.systemPromptKeywords.join(" ");
+    const similarityScore = this.tokenJaccardSimilarity(output, referenceText);
 
-    leaked = keywordsFound.length > 0 || potentialFragments.length >= 2;
+    leaked =
+      keywordsFound.length > 0 ||
+      potentialFragments.length >= 2 ||
+      similarityScore >= this.config.similarityThreshold;
 
     return {
       leaked,
@@ -442,6 +489,18 @@ export class PromptLeakageGuard {
       },
       sanitized_output: leaked ? this.sanitizeOutput(output) : undefined,
     };
+  }
+
+  /** Jaccard similarity (|intersection| / |union|) between two texts' lowercase word-token sets. */
+  private tokenJaccardSimilarity(a: string, b: string): number {
+    const tokenize = (s: string): Set<string> => new Set((s.toLowerCase().match(/[a-z0-9]+/g) || []));
+    const setA = tokenize(a);
+    const setB = tokenize(b);
+    if (setA.size === 0 || setB.size === 0) return 0;
+    let intersection = 0;
+    for (const token of setA) if (setB.has(token)) intersection++;
+    const union = setA.size + setB.size - intersection;
+    return union === 0 ? 0 : intersection / union;
   }
 
   /**

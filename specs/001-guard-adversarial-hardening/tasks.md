@@ -11,10 +11,29 @@ mechanically execute. It is a status ledger, updated at the end of every
 guard-hardening work session. Before trusting it, reconcile against live
 state: `gh issue list --repo nkratk/llm-trust-guard --state all`, `gh pr list
 --repo nkratk/llm-trust-guard --state all`, `npm view llm-trust-guard
-version`. **Last reconciled against live state: 2026-07-19.**
+version`. **Last reconciled against live state: 2026-07-19 (post-merge).**
 
-**Current published version**: npm `llm-trust-guard` v4.32.3 (does NOT yet
-include any of the fixes below — they're all on unmerged PR #17)
+**Current published version**: npm `llm-trust-guard` v4.32.3 on the registry.
+PR #17 is **merged to `main` but not yet released** — a new version has not
+been published to npm yet (T022b).
+
+**Incident (2026-07-19, same day as merge): squash-merging PR #17 auto-closed
+3 issues it should NOT have (#5, #11, #15).** `gh pr merge --squash` by
+default composes the squash commit message from every individual commit's
+message on the branch, not just the curated PR description. Three early
+commits (written when a fix was first attempted, before a later adversarial-
+review round found problems and reverted parts of that fix) still contained
+stale `Closes #N` text that was never corrected once the revert happened.
+The PR's own description was accurate throughout (never claimed to close
+#5/#11/#15) — the drift was in individual commit messages the PR body didn't
+override. All 3 issues were manually reopened with an explanatory comment
+immediately after being caught (see issue timestamps ~19:36-19:37 UTC,
+minutes after the ~19:35 merge). **Lesson for next time: before squash-
+merging any PR whose branch contains a since-reverted commit, grep the full
+commit range for stray `Closes #`/`Fixes #`/`Resolves #` text
+(`git log <base>..<branch> --format="%B" | grep -oE "(Closes|Fixes|Resolves) #[0-9]+"`)
+and either edit those commits or use `--admin`/a manual merge commit with a
+clean message instead of trusting squash's default composition.**
 
 ## Phase 1: Fix batch #1 (issues #1-#3) — COMPLETE, RELEASED
 
@@ -23,11 +42,12 @@ include any of the fixes below — they're all on unmerged PR #17)
 - [x] T003 CodeExecutionGuard gadget-chain pattern gap (#3) — fixed, merged (PR #4), released v4.32.3
 - [x] T004 Close issues #1, #2, #3 on GitHub — done 2026-07-16 (they had stayed open post-merge; this was the housekeeping gap that first surfaced the cross-session drift problem)
 
-## Phase 2: Fix batch #2 (issues #5-#16) — FIXED, TESTED, GATE-GREEN, **NOT MERGED**
+## Phase 2: Fix batch #2 (issues #5-#16) — FIXED, TESTED, GATE-GREEN, **MERGED, NOT RELEASED**
 
 **PR**: [#17](https://github.com/nkratk/llm-trust-guard/pull/17), branch
-`fix/regex-threshold-batch-2`, state OPEN as of 2026-07-19. 915/915 tests
-passing, all `scripts/verify.sh` gates green. Already references `Closes #6`,
+`fix/regex-threshold-batch-2`, **MERGED to main 2026-07-19 19:35 UTC**
+(squash). 930/930 tests passing post-merge, all `scripts/verify.sh` gates
+green. Already references `Closes #6`,
 `Closes #8`, `Closes #9`, `Closes #14`, `Closes #12` (Constitution Principle
 V, FR-002) — deliberately does NOT close #7, #10, #11, #15, #16 (partially
 fixed, residual gap documented below) or #5 (reverted, still fully open).
@@ -71,11 +91,13 @@ originally filed as GitHub issues — found and fixed same-session, 2026-07-19):
 - [x] T019 Permanent adversarial-sweep test file `tests/guard-adversarial-sweep.test.ts` — covers all 5 guards touched by batch #2 (ExternalDataGuard, OutputFilter, OutputGuard, PromptLeakageGuard, ToolResultGuard)
 - [x] T020 spec-kit set up in this repo (`.specify/`, `.claude/skills/speckit-*`, this spec) — 2026-07-19, in response to the cross-session drift problem this ledger exists to solve
 
-## Phase 4: Next steps — NOT STARTED
+## Phase 4: Next steps
 
 - [x] T021 ~~Add `Closes #N` references~~ — already present (see correction note above); the comma-list syntax bug was fixed 2026-07-19.
-- [ ] T022 **Explicit merge/release decision for PR #17** — deliberately not yet made; requires separate, explicit user confirmation per Constitution Principle VII. Not blocked on anything else in this list.
-- [ ] T023 After T022, close issues per T004's pattern (fully-fixed issues close cleanly; partially-fixed issues get a comment linking the residual gap, stay open)
+- [x] T022 **Explicit merge decision for PR #17** — user confirmed 2026-07-19; merged (squash) to main.
+- [x] T022b **Squash-merge auto-closed 3 issues that should have stayed open (#5, #11, #15)** — see incident note above. All 3 reopened with explanatory comments same-day, minutes after merge.
+- [ ] T022c **Explicit release decision** — merging to `main` does not publish a new npm version by itself (per this repo's publish process: push runs CI only, `gh release create` triggers the actual publish workflow). Not yet done; requires separate, explicit user confirmation per Constitution Principle VII.
+- [ ] T023 After T022c ships a release, do a final issue-state pass: fully-fixed issues (#6, #8, #9, #12, #14) should already be closed (confirmed correct as of this merge); partially-fixed issues (#7, #10, #11, #15, #16) and the unfixed one (#5) stay open — this was verified correct immediately post-merge (see T022b) but re-verify once more after the release ships, since release tagging is a separate action that could theoretically trigger its own automation.
 - [ ] T024 Scope T016 (#13, format-carrier bypass) as its own investigation before attempting a fix
 - [ ] T025 Consider a fresh approach to T015 (#5) if one emerges — regex-based approaches are exhausted per the CHANGELOG note
 - [ ] T026 Cross-check whether any of the #7-#16 batch's confirmed npm bugs also affect the Python sibling package (parity check not yet done — Constitution Principle VI)

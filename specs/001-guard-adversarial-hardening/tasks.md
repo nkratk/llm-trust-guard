@@ -160,12 +160,49 @@ switch-case branch) but did not chase further given the low stakes.
   `multimodal_guard`'s equivalent pattern) to the `dan_jailbreak` alternation
   in both packages. Not yet attempted — this phase's scope was investigation
   only, per plan.
-- [ ] T030 The 135 (npm) / 132 (Python) confirmed-never-detected
-  threat-groups are a large backlog spanning many different guards and
-  attack classes, not yet triaged/grouped/prioritized. Needs its own scoping
-  pass before any fix work — do not assume they're all worth fixing or
-  equally severe. Raw classification data:
-  `/tmp/bisect-classification.json` in the harness repo (ephemeral scratch
-  location, not committed anywhere — regenerate via
-  `llm-trust-guard-versions/classify-bisect.py` if needed in a future
-  session, or copy it somewhere durable first).
+- [x] T030 Triaged the 135 never-detected threat-groups by guard: they
+  cluster into 6 buckets, not 135 independent problems —
+  `ToolChainValidator` (37), `ExternalDataGuard` (36), `MultiModalGuard`
+  (30), `InputSanitizer` (22), `ConversationGuard` (6), `RAGGuard` (3),
+  `TrustExploitationGuard` (1). Filed one issue per cluster (#20-#23; the
+  three small tail buckets — 10 threats total — not yet filed, lower
+  priority). **Root-cause discipline note**: an initial pass on #21 and #22
+  claimed "no detection capability at all" for their guards; live-testing
+  raw vs. decoded payloads (not just the corpus's encoded form) corrected
+  this — both guards already have working signatures for most of these
+  attacks, defeated by a uniformly missing decode/normalize step before
+  matching. Both issues were corrected in place (with a comment documenting
+  the correction) before being treated as settled. Same discipline applied
+  to #23, which resolved cleanly into two sub-groups without needing a
+  rewrite. Lesson: when a "guard never catches X" claim comes from corpus
+  data where payloads are pre-encoded, verify against the raw/decoded form
+  before writing a root cause — "no detection" and "detection defeated by
+  encoding" are different bugs with different fixes.
+  - [x] T030a [#20](https://github.com/nkratk/llm-trust-guard/issues/20)
+    `ToolChainValidator` — scoping question (single-shot call vs.
+    sequence-validation guard), not a confirmed bug. Python parity:
+    [python#8](https://github.com/nkratk/llm-trust-guard-python/issues/8).
+  - [x] T030b [#21](https://github.com/nkratk/llm-trust-guard/issues/21)
+    `ExternalDataGuard` — decode/normalize-before-matching gap, 34 threats
+    (2 of the original 36 were duplicates of #13, excluded). Python parity:
+    [python#9](https://github.com/nkratk/llm-trust-guard-python/issues/9).
+  - [x] T030c [#22](https://github.com/nkratk/llm-trust-guard/issues/22)
+    `MultiModalGuard` — split 20 decode-gap / 10 genuine
+    URL-param-exfil-signature gap. Python parity:
+    [python#10](https://github.com/nkratk/llm-trust-guard-python/issues/10).
+  - [x] T030d [#23](https://github.com/nkratk/llm-trust-guard/issues/23)
+    `InputSanitizer` — split decode-gap (7-9 threats) / content-shape gap (2
+    threats, comment-embedded backdoor phrasing existing patterns don't
+    cover regardless of decoding) / wrong-guard-tested (13 threats,
+    path-traversal + malicious-LoRA metadata). Python parity:
+    [python#11](https://github.com/nkratk/llm-trust-guard-python/issues/11).
+- [ ] T031 File issues for the 3 remaining small-tail buckets
+  (`ConversationGuard` 6, `RAGGuard` 3, `TrustExploitationGuard` 1) if/when
+  prioritized — not done yet, low volume relative to T030a-d.
+- [ ] T032 None of the 8 filed issues (#20-#23, python #8-#11) have been
+  fixed yet — this phase's scope was triage and filing, not implementation.
+  Cross-cutting note for whoever picks this up: #21/#22/#23's decode-gap
+  findings share the same root cause (no decode/normalize layer before
+  content matching) across three different guards — worth considering one
+  shared utility rather than three separate fixes, per the suggested-fix
+  notes in each issue.

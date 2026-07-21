@@ -104,3 +104,68 @@ originally filed as GitHub issues — found and fixed same-session, 2026-07-19):
 - [ ] T024 Scope T016 (#13, format-carrier bypass) as its own investigation before attempting a fix
 - [ ] T025 Consider a fresh approach to T015 (#5) if one emerges — regex-based approaches are exhausted per the CHANGELOG note
 - [ ] T026 Cross-check whether any of the #7-#16 batch's confirmed npm bugs also affect the Python sibling package (parity check not yet done — Constitution Principle VI)
+
+## Phase 5: Full-history regression bisection (2026-07-20) — COMPLETE
+
+**Trigger**: a fresh-install run of the full 1189-threat PoC corpus against the
+then-latest npm v4.32.4 / PyPI v0.21.3 found 137 npm / 133 Python
+threat-groups with zero detection. Before scoping fixes, the open question
+was whether any of these used to work and got broken by a later release (a
+real regression, higher priority) versus never having worked at all (a
+long-standing coverage gap).
+
+**Method**: every one of the 50 historical npm versions (v4.0.0-v4.32.4) and
+36 historical Python versions (v0.1.0-v0.21.3) already had a fresh install
+staged locally (no new `npm install`/`pip install` needed). Repaired three
+data-integrity problems in the historical harness before trusting any of it
+(a broadly-stale v4.31.0 npm PoC set, missing Python `lib/` symlinks, ~61% of
+Python PoCs missing the `sys.path` injection needed to test the right
+package version instead of silently falling through to an ambient one) — see
+harness repo (`llm-trust-guard-versions`, not git-tracked) for the repair
+scripts. Then re-ran all 137+133 failing threat-groups fresh against every
+version each has a PoC for (6,850 npm + 4,788 Python individual executions,
+via `bisect-npm.js`/`bisect-py.py` — a shell/xargs-based first attempt was
+abandoned after nested background process trees wedged indefinitely for
+job-control reasons unrelated to the guards themselves), then classified each
+threat's version-ordered blocked/total sequence.
+
+**Result**: 135/137 npm and 132/133 Python threat-groups are genuine
+long-standing coverage gaps (0 blocked at every version ever tested, sample
+independently judge-verified as reproducible and not a data artifact) — i.e.
+**we did not break these**, they never worked. Exactly **one confirmed,
+judge-verified regression** was found. Two single-version 1-of-5 flickers
+(same threat, same payload set, in both npm and Python at unrelated version
+points) look like non-deterministic guard-internal behavior rather than a
+real version-tied change — ruled out test-harness randomness as the cause
+(the only `Math.random()` in that PoC template lives in an unreachable
+switch-case branch) but did not chase further given the low stakes.
+
+- [x] T027 **Confirmed regression**: `InputSanitizer`'s `dan_jailbreak`
+  pattern was tightened in v4.11.0 (`/DAN\s*(mode)?/i` →
+  `/\bDAN\b\s*(?:mode|prompt|jailbreak|you\s+(?:are|can|will))/i`) to reduce
+  false positives, but the tightening dropped "DAN persona active"-style
+  phrasing — blocked from v4.0.0-v4.10.0, silently allowed through in every
+  release since, **still broken in current v4.32.4**. Live-reproduced
+  against real installs of all three versions by an independent
+  fresh-context judge agent with no access to this investigation's prior
+  conclusions; root-caused to the exact regex diff. Filed as
+  [#19](https://github.com/nkratk/llm-trust-guard/issues/19). Not yet fixed
+  — awaiting scoping/priority decision.
+- [x] T028 Python parity check for T027: `input_sanitizer.py` ships the same
+  narrow pattern and has never covered "persona" phrasing at any released
+  version (v0.1.0-v0.21.3) — not a regression on the Python side, but the
+  same fix should land in both packages together. Filed as
+  [llm-trust-guard-python#7](https://github.com/nkratk/llm-trust-guard-python/issues/7).
+- [ ] T029 Fix T027/T028: add `persona` (and consider `character`, matching
+  `multimodal_guard`'s equivalent pattern) to the `dan_jailbreak` alternation
+  in both packages. Not yet attempted — this phase's scope was investigation
+  only, per plan.
+- [ ] T030 The 135 (npm) / 132 (Python) confirmed-never-detected
+  threat-groups are a large backlog spanning many different guards and
+  attack classes, not yet triaged/grouped/prioritized. Needs its own scoping
+  pass before any fix work — do not assume they're all worth fixing or
+  equally severe. Raw classification data:
+  `/tmp/bisect-classification.json` in the harness repo (ephemeral scratch
+  location, not committed anywhere — regenerate via
+  `llm-trust-guard-versions/classify-bisect.py` if needed in a future
+  session, or copy it somewhere durable first).

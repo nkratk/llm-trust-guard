@@ -5,6 +5,24 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+Found via a full-history bisection sweep across every published version (see `specs/001-guard-adversarial-hardening/tasks.md` Phase 5) — 137 threat groups showed zero detection at the current version; 135 were long-standing gaps, one (#19) a confirmed regression. This batch closes the regression plus the largest coverage-gap clusters, each independently adversarially re-reviewed after implementation (two rounds — see below for what those rounds caught).
+
+- **`InputSanitizer`**: `dan_jailbreak` pattern now also matches "DAN persona"/"DAN character" phrasing (was tightened in v4.11.0 to cut false positives, but dropped this coverage — still broken through the current release until now). Closes #19.
+- **New shared `src/decode-variants.ts`**: `InputSanitizer`, `ExternalDataGuard`, and `MultiModalGuard` previously matched their patterns against raw input only, so any payload wrapped in base64, hex, URL-encoding, ROT13, string-reversal, or Cyrillic-homoglyph substitution bypassed detection entirely. All three guards now also re-scan de-obfuscated variants (chained up to depth 3) before deciding allow/block.
+  - `ExternalDataGuard`: 34/36 previously-undetected SSRF/XXE/zip-slip/markdown-exfil/gopher-smuggle threats now caught (2 were duplicates of #13, excluded). Closes #21.
+  - `MultiModalGuard`: 20/30 previously-undetected CometJacking-family threats now caught via decode; the other 10 (URL-param-exfil with no HTML/script markup) are a genuine missing-signature gap, tracked separately in #22.
+  - `InputSanitizer`: 7/22 previously-undetected threats now caught via decode (ROT13/homograph-wrapped jailbreak phrasing); 2 more (`0320`, `0860`) turned out to be a content-shape gap unrelated to decoding, and 13 (path-traversal, malicious-LoRA-metadata payloads) are the wrong attack class for this guard entirely — both documented in #23, not fixed here.
+
+### Fixed (found during adversarial review of the above, not part of the original scope)
+
+- **ReDoS**: re-scanning content across ~40 decode variants turned a latent catastrophic-backtracking regex (`ExternalDataGuard`'s `email_address` PII pattern) into a trivial multi-second DoS on ordinary, non-malicious content (10s+ on an 80KB string with no `@` and no attack content). Broader stress-testing of every pattern in all three guards then found 6 more pre-existing ReDoS-prone regexes sharing the same shape (unbounded quantifier overlapping a literal separator, or no anchor + optional leading group), duplicated across `ExternalDataGuard`, `InputSanitizer`, and `MultiModalGuard` — all rewritten with bounded quantifiers (10s+ → single-digit ms in every case, verified with the exact same inputs before/after). `buildDecodeVariants()` also caps its input to 20,000 characters as defense-in-depth against any regex vulnerability not yet found.
+- **False positive**: partial homoglyph normalization (only the ~6 commonly-spoofed Cyrillic letters) applied to genuinely non-English text created artificial Latin/Cyrillic mixing, false-flagging legitimate Cyrillic sentences as a "homoglyph attack" in `MultiModalGuard`. Fixed by gating the two raw-text-only heuristics (invisible-character count, intra-token script mixing) to never run against decode variants. A related unconditional single-occurrence check for ZWNJ/ZWJ (legitimate word-joining characters in Persian/Arabic-script/Indic text) was also narrowed to only flag the rarer, essentially-always-suspicious invisible characters (ZWSP, BOM, bidi isolates) outright — ZWNJ/ZWJ abuse is still caught by the existing >5-occurrence threshold heuristic.
+- **Inflated risk score**: `MultiModalGuard.check()` could count the same violation's risk contribution once per decode variant it appeared in, and (in a second-round fix) could double-count a variant's *entire* contribution when it contained one already-seen and one genuinely new violation together. Both fixed; `violations`/`injection_patterns_found` are also now deduplicated in the final result, matching `ExternalDataGuard`'s existing behavior.
+
 ## [4.32.4] - 2026-07-19
 
 ### Fixed

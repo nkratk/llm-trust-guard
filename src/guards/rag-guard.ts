@@ -184,7 +184,9 @@ export class RAGGuard {
   // Indirect prompt injection patterns (v2)
   private readonly INDIRECT_INJECTION_PATTERNS: Array<{ name: string; pattern: RegExp; severity: number }> = [
     // HTML/Markdown hidden instructions
-    { name: "html_comment_injection", pattern: /<!--[\s\S]*?(ignore|override|system|instruction|admin)[\s\S]*?-->/i, severity: 45 },
+    // Bounded — the identical unbounded pattern was confirmed quadratic-time
+    // (2s+ timeout) in the Python sibling's equivalent regex engine.
+    { name: "html_comment_injection", pattern: /<!--[\s\S]{0,2000}?(ignore|override|system|instruction|admin)[\s\S]{0,2000}?-->/i, severity: 45 },
     // Bounded — unbounded [\s\S]*? was mildly quadratic on pathological "["-heavy content.
     { name: "markdown_hidden", pattern: /\[[\s\S]{0,2000}?\]\(javascript:|data:text\/html|about:blank\)/i, severity: 50 },
     { name: "invisible_link", pattern: /\[]\([^)]+\)/g, severity: 30 },

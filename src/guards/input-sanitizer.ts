@@ -369,8 +369,10 @@ const BENIGN_TRIGGER_RE =
  * prompts do not contain URLs, emails, credentials, shell pipes, or amounts, so
  * they remain suppressed.
  */
+// Email branch bounded — same ReDoS shape as ExternalDataGuard's
+// email_address (10s+ on long non-matching input; here 5.7s at 60KB).
 const SUPPRESSION_VETO_RE =
-  /https?:\/\/|[\w.+-]+@[\w-]+\.[a-z]{2,}|\b(?:api[\s_-]?keys?|passwords?|passwd|secrets?|credentials?|private\s+keys?|ssn|social\s+security|access\s+tokens?)\b|\bexfiltrat\w*|\brm\s+-rf\b|\|\s*sh\b|\bcurl\b|\bwget\b|\bdelete\s+(?:every|all|the)\s+(?:files?|director\w+|database)\b|\bdrop\s+(?:table|database)\b|\$\s?\d{2,}|\baccount\s+#?\d{6,}\b/i;
+  /https?:\/\/|[\w.+-]{1,64}@(?:[\w-]{1,63}\.){1,8}[a-z]{2,24}|\b(?:api[\s_-]?keys?|passwords?|passwd|secrets?|credentials?|private\s+keys?|ssn|social\s+security|access\s+tokens?)\b|\bexfiltrat\w*|\brm\s+-rf\b|\|\s*sh\b|\bcurl\b|\bwget\b|\bdelete\s+(?:every|all|the)\s+(?:files?|director\w+|database)\b|\bdrop\s+(?:table|database)\b|\$\s?\d{2,}|\baccount\s+#?\d{6,}\b/i;
 
 export interface InputSanitizerConfig {
   threshold?: number;

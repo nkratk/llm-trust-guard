@@ -141,14 +141,14 @@ const output = guard.filterOutput(llmResponse, session.role);
 
 | Guard | Purpose | Detection |
 |-------|---------|-----------|
-| InputSanitizer | Prompt injection, PAP, Policy Puppetry | 170+ regex patterns, 11 languages |
+| InputSanitizer | Prompt injection, PAP, Policy Puppetry | 170+ regex patterns, 11 languages; re-scans base64/hex/URL-encoded/ROT13/reversed/homoglyph-normalized decode variants, not just the raw string |
 | EncodingDetector | Encoding bypass (9 formats, multi-layer) + Sneaky Bits (U+2062/U+2064, variation selectors) | Decode + pattern match; `SNEAKY_BITS_ENCODING_DETECTED` violation |
 | CompressionDetector | Structural similarity to known attacks (NCD) | gzip compression distance, 135 templates |
 | HeuristicAnalyzer | Synonym expansion, structural + statistical analysis | 8 attack categories, 130+ synonyms |
 | PromptLeakageGuard | System prompt extraction attempts | Direct + encoded + indirect |
 | ConversationGuard | Multi-turn manipulation, escalation | Session risk scoring |
 | ContextBudgetGuard | Many-shot jailbreaking, context overflow | Token budget tracking |
-| MultiModalGuard | Image/audio metadata injection | Metadata + steganography scan |
+| MultiModalGuard | Image/audio metadata injection | Metadata + steganography scan; extracted text re-scanned across decode variants (base64/hex/URL-encoded/ROT13/reversed/homoglyph-normalized) |
 
 ### Access Control Guards
 
@@ -184,7 +184,7 @@ const output = guard.filterOutput(llmResponse, session.role);
 | MCPSecurityGuard | MCP tool shadowing, rug pull, SSRF, credential exposure | Registration + mutation hash + credential scan; `detectCredentialExposure` option |
 | CircuitBreaker | Cascading failure prevention | State machine |
 | DriftDetector | Behavioral anomaly detection | Statistical profiling |
-| ExternalDataGuard | External data validation before LLM context | Source trust + injection + secret scan |
+| ExternalDataGuard | External data validation before LLM context | Source trust + injection + secret scan; SSRF/XXE/exfil/injection checks re-scan decode variants (base64/hex/URL-encoded/ROT13/reversed/homoglyph-normalized) |
 | AgentSkillGuard | Malicious plugin/tool detection (OpenClaw) | Backdoor signatures + typosquatting |
 | SessionIntegrityGuard | Session hijacking, permission escalation | Binding + sequence + timeout |
 
@@ -333,6 +333,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 ## Security
 
 See [SECURITY.md](SECURITY.md) for vulnerability reporting.
+
+Every regex pattern across every guard was stress-tested against pathological (non-attack) input to find and fix catastrophic-backtracking (ReDoS) vulnerabilities — see the CHANGELOG for details. This was a one-time manual sweep, not yet an automated CI check; treat new regex patterns added after this pass with the same scrutiny.
 
 ## License
 

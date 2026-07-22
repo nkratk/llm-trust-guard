@@ -125,7 +125,9 @@ export class EncodingDetector {
     // Template Injection
     {
       name: "template_injection",
-      pattern: /(?:\{\{.*\}\}|\$\{.*\}|<%.*%>|<\?.*\?>|\[\[.*\]\])/gi,
+      // Bounded — unbounded .* was quadratic-time (3.7s at 50KB) on long
+      // content with many "{" characters and no closing "}}".
+      pattern: /(?:\{\{.{0,500}\}\}|\$\{.{0,500}\}|<%.{0,500}%>|<\?.{0,500}\?>|\[\[.{0,500}\]\])/gi,
       severity: "high",
     },
     // Role/Permission Escalation

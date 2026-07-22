@@ -185,7 +185,8 @@ export class RAGGuard {
   private readonly INDIRECT_INJECTION_PATTERNS: Array<{ name: string; pattern: RegExp; severity: number }> = [
     // HTML/Markdown hidden instructions
     { name: "html_comment_injection", pattern: /<!--[\s\S]*?(ignore|override|system|instruction|admin)[\s\S]*?-->/i, severity: 45 },
-    { name: "markdown_hidden", pattern: /\[[\s\S]*?\]\(javascript:|data:text\/html|about:blank\)/i, severity: 50 },
+    // Bounded — unbounded [\s\S]*? was mildly quadratic on pathological "["-heavy content.
+    { name: "markdown_hidden", pattern: /\[[\s\S]{0,2000}?\]\(javascript:|data:text\/html|about:blank\)/i, severity: 50 },
     { name: "invisible_link", pattern: /\[]\([^)]+\)/g, severity: 30 },
 
     // Unicode steganography
@@ -217,7 +218,10 @@ export class RAGGuard {
     { name: "json_agent_directive", pattern: /"(_system|__override|_agent_instructions?|__system_prompt__|_assistant_role|__internal_directive|_meta_instruction)"\s*:/i, severity: 50 },
     // Markdown image alt-text injection — image alt rendered by LLM vision parsers and some MD processors
     // Pattern: ![ignore all instructions](any-url) or ![system: new role](url)
-    { name: "markdown_img_alt_injection", pattern: /!\[[^\]]*(?:ignore|system\s*:|new\s+instructions?|you\s+are\s+now|override|admin\s+mode|jailbreak)[^\]]*\]\([^)]*\)/i, severity: 50 },
+    // [^\]]*/[^)]* bounded — unbounded form was quadratic-time ReDoS (11.6s
+    // at 128KB) on content with many "![" substrings and no closing "]",
+    // e.g. malformed/partial markdown or literal "![" in a code block.
+    { name: "markdown_img_alt_injection", pattern: /!\[[^\]]{0,2000}(?:ignore|system\s*:|new\s+instructions?|you\s+are\s+now|override|admin\s+mode|jailbreak)[^\]]{0,2000}\]\([^)]{0,1000}\)/i, severity: 50 },
     // onerror/onload event injection in HTML img/script tags inside RAG content
     { name: "html_event_injection", pattern: /<(?:img|script|iframe|svg)\b[^>]*\bon(?:error|load|click|mouseover)\s*=\s*["'][^"']+["'][^>]*>/i, severity: 55 },
   ];

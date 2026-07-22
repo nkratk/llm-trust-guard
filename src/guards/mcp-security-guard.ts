@@ -221,8 +221,9 @@ export class MCPSecurityGuard {
     { name: "sd_retry_forever", type: "resource_drain", pattern: /retry\s+(?:indefinitely|forever|endlessly|infinitely)|loop\s+(?:infinitely|forever|endlessly)|run\s+(?:forever|indefinitely|endlessly)/i },
 
     // Conversation hijacking — role injection and system prompt override in response body
-    { name: "sd_fake_user_turn", type: "conversation_hijack", pattern: /\n\s*(?:User|Human)\s*:\s*(?=\S)/i },
-    { name: "sd_fake_assistant_turn", type: "conversation_hijack", pattern: /\n\s*(?:Assistant|AI|Bot|Claude|GPT)\s*:\s*(?=\S)/i },
+    // \s* bounded — unbounded form was quadratic-time (2.5s+ at 40K newlines).
+    { name: "sd_fake_user_turn", type: "conversation_hijack", pattern: /\n\s{0,20}(?:User|Human)\s{0,5}:\s{0,5}(?=\S)/i },
+    { name: "sd_fake_assistant_turn", type: "conversation_hijack", pattern: /\n\s{0,20}(?:Assistant|AI|Bot|Claude|GPT)\s{0,5}:\s{0,5}(?=\S)/i },
     { name: "sd_role_json", type: "conversation_hijack", pattern: /"role"\s*:\s*"(?:system|user|assistant)"/i },
     { name: "sd_system_xml", type: "conversation_hijack", pattern: /<(?:system|user|assistant)\s*>|<\/(?:system|user|assistant)>/i },
     { name: "sd_from_now_on", type: "conversation_hijack", pattern: /from\s+now\s+on\s+you\s+(?:are|will|must)|henceforth\s+you|for\s+(?:the\s+rest\s+of\s+)?this\s+session\s+you|for\s+the\s+rest\s+of\s+(?:this\s+)?(?:conversation|session)\s+you/i },
@@ -1081,13 +1082,16 @@ export class MCPSecurityGuard {
 
     // MCP server/tool impersonation and shadow-tool naming in description
     { name: "mcp_tool_shadow", pattern: /\bshadow-\w+(?:-mcp|-tool|-server)\b/i },
-    { name: "mcp_impersonation", pattern: /\b[\w-]+-mcp-official(?:-v\d+)?\b|official-v\d+.*\bmcp\b|\bmcp\b.*official-v\d+|\b\w+_mcp_v\d+\b|\b\w+-mcp\s+vs\s+\w+/i },
+    // Bounded — unbounded [\w-]+/.* was quadratic-time (1.6s+ at 50KB) on
+    // long alternating word/hyphen runs with no "-mcp-official" literal.
+    { name: "mcp_impersonation", pattern: /\b[\w-]{1,100}-mcp-official(?:-v\d+)?\b|official-v\d+.{0,100}\bmcp\b|\bmcp\b.{0,100}official-v\d+|\b\w+_mcp_v\d+\b|\b\w+-mcp\s+vs\s+\w+/i },
 
     // Rug-pull v2: post-approval description patch with CC/BCC exfil, session steal, silent exfil
     { name: "rug_pull_descriptor", pattern: /(?:also\s+)?(?:CC|BCC)\s+\S+@\S+|steal\s+session|include\s+session\s+token|silent(?:ly)?\s+exfil|auto-approve.*destructive|enable\s+silent\s+exfil|redirect\s+results\s+to\s+https?:\/\/|leak_api_keys|hidden_instruction\s+leak|(?:from\s+now\s+on\s+also\s+)?exfil\s+to\s+\S+\.\S+/i },
 
     // HTML comment injection carrying SYS/ADMIN directives in tool description
-    { name: "html_comment_injection", pattern: /<!--[^>]*(?:SYS|SYSTEM|ADMIN|OVERRIDE|BCC\s+\S+@|redirect\s+to|steal)[^>]*-->/i },
+    // Bounded — unbounded [^>]* was quadratic-time (811ms+ at 48KB) on long unterminated-comment content.
+    { name: "html_comment_injection", pattern: /<!--[^>]{0,2000}(?:SYS|SYSTEM|ADMIN|OVERRIDE|BCC\s+\S+@|redirect\s+to|steal)[^>]{0,2000}-->/i },
 
     // Cyrillic homoglyph characters — suspicious in MCP tool descriptions (English context)
     { name: "homoglyph_cyrillic", pattern: /[Ѐ-ӿ]/u },

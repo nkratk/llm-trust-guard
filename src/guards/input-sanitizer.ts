@@ -126,8 +126,10 @@ const DEFAULT_PATTERNS: InjectionPattern[] = [
   { pattern: /"\s*(?:role|mode|authority)\s*"\s*:\s*"(?:admin|root|system|unrestricted|god)"/i, weight: 0.9, name: "json_policy_role" },
   { pattern: /"(?:ignore|override|bypass|disable)\s*(?:safety|rules|instructions?|alignment|guardrails?)"/i, weight: 0.9, name: "json_policy_override" },
   { pattern: /"(?:instructions?|system_prompt|behavior|policy)"\s*:\s*"/i, weight: 0.7, name: "json_policy_instruction" },
-  { pattern: /^\s*\[(?:system|admin|override|policy|config|rules)\]\s*$/im, weight: 0.9, name: "ini_policy_section" },
-  { pattern: /^\s*(?:mode|role|authority|instructions?|behavior)\s*=\s*.+$/im, weight: 0.75, name: "ini_policy_assignment" },
+  // \s* bounded — unbounded form + /m was quadratic-time (2.5s+ at 40K
+  // newlines) since \s matches \n and every line boundary is a retry point.
+  { pattern: /^\s{0,20}\[(?:system|admin|override|policy|config|rules)\]\s{0,20}$/im, weight: 0.9, name: "ini_policy_section" },
+  { pattern: /^\s{0,20}(?:mode|role|authority|instructions?|behavior)\s{0,10}=\s{0,10}.+$/im, weight: 0.75, name: "ini_policy_assignment" },
   { pattern: /<\s*(?:policy|config|rules|override|permissions?|instructions?)\s*>/i, weight: 0.85, name: "xml_policy_tag" },
   { pattern: /^---\s*\n\s*(?:role|system|policy|override|mode)\s*:/m, weight: 0.85, name: "yaml_policy_header" },
   { pattern: /\[\s*syst[3e]m\s*\]|\[\s*4dm[1i]n\s*\]/i, weight: 0.9, name: "leetspeak_policy_section" },

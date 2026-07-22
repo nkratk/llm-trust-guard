@@ -91,7 +91,8 @@ export class MultiModalGuard {
     { name: "invisible_unicode", pattern: /[\u200B\uFEFF\u2060-\u206F]/g },
     // Policy Puppetry in metadata
     { name: "json_policy_in_metadata", pattern: /"(?:role|instructions?|system|policy)"\s*:\s*"/i },
-    { name: "ini_policy_in_metadata", pattern: /^\s*\[(?:system|admin|override|config)\]\s*$/im },
+    // \s* bounded — same ReDoS shape as input-sanitizer.ts's ini_policy_section.
+    { name: "ini_policy_in_metadata", pattern: /^\s{0,20}\[(?:system|admin|override|config)\]\s{0,20}$/im },
     // Symbolic/emoji semantic injection (NVIDIA AI Red Team research)
     { name: "emoji_instruction_sequence", pattern: /(?:🔓|🔑|🛡️|⚙️|🔧|🚫|❌|✅)\s*(?:unlock|admin|override|bypass|disable|enable|grant|allow)/i },
     // [A-Z]{2,}/\s* bounded — unbounded form was quadratic-time ReDoS on long non-matching input.

@@ -18,6 +18,7 @@
  */
 
 import { GuardLogger } from "../types";
+import { buildDecodeVariants } from "../decode-variants";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -97,7 +98,11 @@ const INJECTION_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   { name: "prompt_leak_request", pattern: /(?:print|show|reveal|output)\s+(?:your|the|system)\s+(?:prompt|instructions)/i },
   { name: "base64_injection", pattern: /(?:decode|eval|execute)\s+(?:the\s+)?(?:following\s+)?base64/i },
   // Passive instruction-void forms (CSS-hidden, HTML-attr, and plain text injections)
-  { name: "instructions_void", pattern: /(?:your|the|previous|prior|all\s+(?:previous|prior))?\s*instructions?\s+(?:are|have\s+been|is)\s+(?:void|cancelled?|overridden?|revoked|rescinded|superseded)/i },
+  // Whitespace quantifiers bounded (\s{1,N} instead of unbounded \s+/\s*) —
+  // the unbounded form was quadratic-time on long non-matching input (no
+  // anchor + optional leading group + inner \s+ that never resolves),
+  // ~1.4s on a 30KB string of spaces alone.
+  { name: "instructions_void", pattern: /(?:your|the|previous|prior|all\s{1,5}(?:previous|prior))?\s{0,20}instructions?\s{1,10}(?:are|have\s{1,5}been|is)\s{1,10}(?:void|cancelled?|overridden?|revoked|rescinded|superseded)/i },
   { name: "forget_instructions", pattern: /forget\s+(?:your|all|the|my|these|every|each)\s*(?:previous\s+|prior\s+)?(?:instructions?|rules?|guidelines?|directives?|prompts?)/i },
   { name: "disregard_directives", pattern: /disregard\s+(?:all\s+)?(?:previous|prior|above|your)?\s*(?:instructions?|rules?|directives?|guidelines?|prompts?)/i },
   // Structured document injection (RAG/file/email pipelines)
@@ -179,7 +184,12 @@ const SSRF_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
 const PII_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   { name: "ssn", pattern: /\b\d{3}-\d{2}-\d{4}\b/ },
   { name: "credit_card", pattern: /\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13})\b/ },
-  { name: "email_address", pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z]{2,}\b/i },
+  // Bounded local-part/label/TLD lengths and a label-grouped domain (instead
+  // of one unbounded [A-Za-z0-9.-]+ overlapping the literal "." separator)
+  // avoid catastrophic backtracking on long, non-matching input — the
+  // previous form could take 10s+ on an 80KB string with no valid email in
+  // it, which re-scanning across decode variants made trivially reachable.
+  { name: "email_address", pattern: /\b[A-Za-z0-9._%+-]{1,64}@(?:[A-Za-z0-9-]{1,63}\.){1,8}[A-Za-z]{2,24}\b/i },
 ];
 
 // ---------------------------------------------------------------------------
@@ -256,53 +266,66 @@ export class ExternalDataGuard {
       }
     }
 
+    // Content checks 5-8 also scan de-obfuscated variants (URL/hex/base64/
+    // ROT13/reversed/homoglyph-normalized) — a raw pattern match alone is
+    // trivially bypassed by wrapping the payload in any of these encodings.
+    const scanTargets = [contentStr, ...buildDecodeVariants(contentStr)];
+
     // 5. Content injection detection
     if (this.config.scanForInjection) {
-      for (const { name, pattern } of INJECTION_PATTERNS) {
-        pattern.lastIndex = 0;
-        if (pattern.test(contentStr)) {
-          violations.push("INJECTION_DETECTED");
-          threats.push(`injection:${name}`);
+      for (const target of scanTargets) {
+        for (const { name, pattern } of INJECTION_PATTERNS) {
+          pattern.lastIndex = 0;
+          if (pattern.test(target)) {
+            violations.push("INJECTION_DETECTED");
+            threats.push(`injection:${name}`);
+          }
         }
       }
     }
 
     // 6. Secret / credential detection
     if (this.config.scanForSecrets) {
-      for (const { name, pattern } of SECRET_PATTERNS) {
-        pattern.lastIndex = 0;
-        if (pattern.test(contentStr)) {
-          violations.push("SECRET_DETECTED");
-          threats.push(`secret:${name}`);
+      for (const target of scanTargets) {
+        for (const { name, pattern } of SECRET_PATTERNS) {
+          pattern.lastIndex = 0;
+          if (pattern.test(target)) {
+            violations.push("SECRET_DETECTED");
+            threats.push(`secret:${name}`);
+          }
         }
-      }
-      // Also flag PII
-      for (const { name, pattern } of PII_PATTERNS) {
-        pattern.lastIndex = 0;
-        if (pattern.test(contentStr)) {
-          violations.push("PII_DETECTED");
-          threats.push(`pii:${name}`);
+        // Also flag PII
+        for (const { name, pattern } of PII_PATTERNS) {
+          pattern.lastIndex = 0;
+          if (pattern.test(target)) {
+            violations.push("PII_DETECTED");
+            threats.push(`pii:${name}`);
+          }
         }
       }
     }
 
     // 7. Data exfiltration URL detection
     if (this.config.scanForExfiltration) {
-      for (const { name, pattern } of EXFILTRATION_PATTERNS) {
-        pattern.lastIndex = 0;
-        if (pattern.test(contentStr)) {
-          violations.push("EXFILTRATION_ATTEMPT");
-          threats.push(`exfil:${name}`);
+      for (const target of scanTargets) {
+        for (const { name, pattern } of EXFILTRATION_PATTERNS) {
+          pattern.lastIndex = 0;
+          if (pattern.test(target)) {
+            violations.push("EXFILTRATION_ATTEMPT");
+            threats.push(`exfil:${name}`);
+          }
         }
       }
     }
 
     // 8. SSRF detection — private IPs, cloud metadata, dangerous schemes
-    for (const { name, pattern } of SSRF_PATTERNS) {
-      pattern.lastIndex = 0;
-      if (pattern.test(contentStr)) {
-        violations.push("SSRF_ATTEMPT");
-        threats.push(`ssrf:${name}`);
+    for (const target of scanTargets) {
+      for (const { name, pattern } of SSRF_PATTERNS) {
+        pattern.lastIndex = 0;
+        if (pattern.test(target)) {
+          violations.push("SSRF_ATTEMPT");
+          threats.push(`ssrf:${name}`);
+        }
       }
     }
 

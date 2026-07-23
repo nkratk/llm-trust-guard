@@ -328,10 +328,36 @@ export class HeuristicAnalyzer {
     const violations: string[] = [];
     let score = 0;
 
-    // Many-shot detection: count Q&A-like pairs
-    const qaPattern = /(?:Q:|Question:|Human:|User:)[\s\S]*?(?:A:|Answer:|Assistant:|AI:)/gi;
-    const qaMatches = input.match(qaPattern) || [];
-    const is_shot_attack = qaMatches.length >= this.config.manyShotThreshold;
+    // Many-shot detection: count Q&A-like pairs.
+    // Originally a single regex spanning the whole Q->A gap
+    // ([\s\S]*?, unbounded) — quadratic-time ReDoS on long content with
+    // many "User:"/"Q:" markers and no closing "A:"/"AI:" (found by the
+    // permanent tests/redos-safety.test.ts sweep). Bounding the gap to
+    // {0,1000} fixed the ReDoS but silently stopped detecting any turn
+    // whose Q->A gap exceeds 1000 chars — a real many-shot-jailbreak
+    // evasion (confirmed: a 5-shot payload with ~1500-char turns went
+    // from 5/5 detected to 0/5), found by independent adversarial review.
+    // Rewritten as a linear scan over marker positions instead: two
+    // simple marker-only regexes (no unbounded middle-content quantifier,
+    // so no backtracking risk at all) located via sequential non-
+    // overlapping exec() calls, mirroring exactly what the original
+    // unbounded /g regex would have matched — full-length gaps included,
+    // with no artificial cap.
+    const qMarkerRe = /Q:|Question:|Human:|User:/gi;
+    const aMarkerRe = /A:|Answer:|Assistant:|AI:/gi;
+    let qaCount = 0;
+    let searchPos = 0;
+    while (true) {
+      qMarkerRe.lastIndex = searchPos;
+      const qm = qMarkerRe.exec(input);
+      if (!qm) break;
+      aMarkerRe.lastIndex = qm.index + qm[0].length;
+      const am = aMarkerRe.exec(input);
+      if (!am) break;
+      qaCount++;
+      searchPos = am.index + am[0].length;
+    }
+    const is_shot_attack = qaCount >= this.config.manyShotThreshold;
     if (is_shot_attack) {
       score += 0.3;
       violations.push("MANY_SHOT_PATTERN");

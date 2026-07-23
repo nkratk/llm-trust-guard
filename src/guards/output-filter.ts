@@ -97,7 +97,10 @@ export class OutputFilter {
   private defaultPIIPatterns: PIIPattern[] = [
     {
       name: "email",
-      pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
+      // Bounded local-part/label/TLD lengths and a label-grouped domain —
+      // same ReDoS fix as ExternalDataGuard's matching pattern (10s+ on an
+      // 80KB string with no valid email in it).
+      pattern: /\b[A-Za-z0-9._%+-]{1,64}@(?:[A-Za-z0-9-]{1,63}\.){1,8}[A-Za-z]{2,24}\b/g,
       maskAs: "[EMAIL]",
     },
     {

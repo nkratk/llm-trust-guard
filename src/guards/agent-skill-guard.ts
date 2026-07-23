@@ -110,7 +110,8 @@ const HIDDEN_INSTRUCTION_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /\bsecretly\b|\bcovertly\b|\bsilently\b/i, label: "covert action instruction" },
   { pattern: /\boverride\s+(?:security|safety|guard|filter)/i, label: "security override" },
   { pattern: /\bpretend\s+(?:to\s+be|you\s+are)/i, label: "identity spoofing" },
-  { pattern: /<!--[\s\S]*?-->/i, label: "HTML comment (hidden content)" },
+  // Bounded — unbounded [\s\S]*? was quadratic-time on long unterminated-comment content.
+  { pattern: /<!--[\s\S]{0,2000}?-->/i, label: "HTML comment (hidden content)" },
   // Semantic Compliance Hijacking (SCH) — natural-language policy framing that redirects data flow
   // without using explicit injection keywords (arXiv:2601.07395 MCP-ITP, arXiv:2605.14460)
   { pattern: /\b(?:IMPORTANT|NOTE|WARNING|ADMIN|SYSTEM|ROOT|CRITICAL)\s*:\s*(?:(?:all\s+)?(?:responses?|results?|data|outputs?)\s+(?:must|should|shall|are\s+required\s+to)\s+(?:be\s+)?(?:sent|forwarded|logged|transmitted|routed|appended)\s+(?:to|at)|(?:also\s+)?(?:CC|BCC)\s+\S+@\S+|route\s+all|redirect\s+all|silently\s+(?:exfil|send|forward))/i, label: "authority-keyword data routing directive" },

@@ -17,6 +17,8 @@
  * - Audio transcript injection markers
  */
 
+import { buildDecodeVariants } from "../decode-variants";
+
 export interface MultiModalGuardConfig {
   /** Enable EXIF/metadata scanning */
   scanMetadata?: boolean;
@@ -80,17 +82,27 @@ export class MultiModalGuard {
     { name: "base64_instruction", pattern: /execute\s*:\s*[A-Za-z0-9+/=]{20,}/i },
     { name: "command_injection", pattern: /;\s*(rm|del|wget|curl|eval|exec)\s/i },
     { name: "exfiltration_markers", pattern: /send\s+(to|this|data)\s+(to\s+)?https?:\/\//i },
-    { name: "invisible_unicode", pattern: /[\u200B-\u200D\uFEFF\u2060-\u206F]/g },
+    // ZWNJ/ZWJ (U+200C/200D) deliberately excluded from this single-occurrence
+    // check \u2014 they're legitimate orthographic characters in Persian, Arabic-
+    // script, and Indic text (e.g. correct Persian word joining), not just an
+    // attack vector. Abuse of ZWNJ/ZWJ at scale is still caught by the
+    // threshold-based excessive_invisible_characters heuristic (>5) below,
+    // which covers the full invisible-character range including these two.
+    { name: "invisible_unicode", pattern: /[\u200B\uFEFF\u2060-\u206F]/g },
     // Policy Puppetry in metadata
     { name: "json_policy_in_metadata", pattern: /"(?:role|instructions?|system|policy)"\s*:\s*"/i },
-    { name: "ini_policy_in_metadata", pattern: /^\s*\[(?:system|admin|override|config)\]\s*$/im },
+    // \s* bounded — same ReDoS shape as input-sanitizer.ts's ini_policy_section.
+    { name: "ini_policy_in_metadata", pattern: /^\s{0,20}\[(?:system|admin|override|config)\]\s{0,20}$/im },
     // Symbolic/emoji semantic injection (NVIDIA AI Red Team research)
     { name: "emoji_instruction_sequence", pattern: /(?:🔓|🔑|🛡️|⚙️|🔧|🚫|❌|✅)\s*(?:unlock|admin|override|bypass|disable|enable|grant|allow)/i },
-    { name: "rebus_instruction_pattern", pattern: /(?:[A-Z]{2,}\s*[-=:>→]\s*){3,}/  },
+    // [A-Z]{2,}/\s* bounded — unbounded form was quadratic-time ReDoS on long non-matching input.
+    { name: "rebus_instruction_pattern", pattern: /(?:[A-Z]{2,20}\s{0,5}[-=:>→]\s{0,5}){3,}/  },
     // Cross-metadata payload splitting
     { name: "metadata_split_marker", pattern: /(?:part|step|fragment)\s*[1-9]\s*(?:of|:)/i },
     // Instruction-void phrases — covers OCR, EXIF, ultrasonic, mind-map, and video-frame containers
-    { name: "instructions_void", pattern: /(?:your|the|previous|prior|all\s+(?:previous|prior))?\s*instructions?\s+(?:are|have\s+been|is)\s+(?:void|cancelled?|overridden?|revoked|rescinded|superseded)/i },
+    // Whitespace quantifiers bounded — see external-data-guard.ts's
+    // matching pattern for why (quadratic-time ReDoS on long non-matching input).
+    { name: "instructions_void", pattern: /(?:your|the|previous|prior|all\s{1,5}(?:previous|prior))?\s{0,20}instructions?\s{1,10}(?:are|have\s{1,5}been|is)\s{1,10}(?:void|cancelled?|overridden?|revoked|rescinded|superseded)/i },
     { name: "forget_instructions", pattern: /forget\s+(?:your|all|the|my|these|every|each)\s*(?:previous\s+|prior\s+)?(?:instructions?|rules?|guidelines?|directives?|prompts?)/i },
     { name: "disregard_directives", pattern: /disregard\s+(?:all\s+)?(?:previous|prior|above|your)?\s*(?:instructions?|rules?|directives?|guidelines?|prompts?)/i },
     // Activation / state-override phrases that appear inside media containers
@@ -257,7 +269,10 @@ export class MultiModalGuard {
       }
     }
 
-    // Scan extracted text (OCR, transcripts) for injections
+    // Scan extracted text (OCR, transcripts) for injections — also across
+    // de-obfuscated variants (URL/hex/base64/ROT13/reversed/zero-width-
+    // stripped/homoglyph-normalized), since a raw match alone is trivially
+    // bypassed by wrapping the payload in any of these encodings.
     if (content.extractedText) {
       const textResult = this.scanText(content.extractedText);
       if (textResult.injectionFound) {
@@ -265,6 +280,32 @@ export class MultiModalGuard {
         violations.push(...textResult.violations);
         injectionPatternsFound.push(...textResult.patterns);
         riskScore += textResult.riskContribution;
+      }
+      // Only the first variant to surface a given violation name contributes
+      // its risk score — otherwise the same underlying threat, visible in
+      // several decode variants at once (e.g. both the hex- and rot13-
+      // decoded forms), would inflate risk_score once per variant instead
+      // of once per distinct threat. Seeded from the raw-text scan's OWN
+      // violations only (not the broader `violations` array, which by this
+      // point may also hold unrelated MIME-type/metadata violations) so an
+      // unrelated violation can never suppress a real text-injection score
+      // just by having the same name.
+      const alreadyFlagged = new Set(textResult.violations);
+      for (const target of buildDecodeVariants(content.extractedText)) {
+        const decodedResult = this.scanText(target, false);
+        if (decodedResult.injectionFound) {
+          hiddenContentDetected = true;
+          const newViolations = decodedResult.violations.filter(v => !alreadyFlagged.has(v));
+          newViolations.forEach(v => alreadyFlagged.add(v));
+          violations.push(...decodedResult.violations);
+          injectionPatternsFound.push(...decodedResult.patterns);
+          // Sum only the newly-surfaced violations' own contributions, not
+          // the whole variant's total (which may also include already-
+          // counted violations, double-counting them otherwise).
+          for (const v of newViolations) {
+            riskScore += decodedResult.contributionByViolation[v] ?? 0;
+          }
+        }
       }
     }
 
@@ -280,7 +321,7 @@ export class MultiModalGuard {
         for (const payload of base64Result.payloads) {
           try {
             const decoded = Buffer.from(payload, "base64").toString("utf-8");
-            const decodedScan = this.scanText(decoded);
+            const decodedScan = this.scanText(decoded, false);
             if (decodedScan.injectionFound) {
               hiddenContentDetected = true;
               violations.push("base64_injection_payload");
@@ -329,25 +370,30 @@ export class MultiModalGuard {
       }
     }
 
+    // Deduplicate — scanning multiple decode variants can surface the same
+    // named violation/pattern more than once for one underlying threat.
+    const uniqueViolations = [...new Set(violations)];
+    const uniquePatterns = [...new Set(injectionPatternsFound)];
+
     // Calculate final decision
-    const blocked = riskScore >= 50 || violations.length > 0;
+    const blocked = riskScore >= 50 || uniqueViolations.length > 0;
 
     return {
       allowed: !blocked,
       reason: blocked
-        ? `Multi-modal content blocked: ${violations.slice(0, 3).join(", ")}`
+        ? `Multi-modal content blocked: ${uniqueViolations.slice(0, 3).join(", ")}`
         : "Multi-modal content passed security checks",
-      violations,
+      violations: uniqueViolations,
       request_id: reqId,
       content_analysis: {
         type: content.type,
         threats_detected: threatsDetected,
         metadata_suspicious: metadataSuspicious,
         hidden_content_detected: hiddenContentDetected,
-        injection_patterns_found: injectionPatternsFound,
+        injection_patterns_found: uniquePatterns,
         risk_score: Math.min(100, riskScore),
       },
-      recommendations: this.generateRecommendations(violations),
+      recommendations: this.generateRecommendations(uniqueViolations),
     };
   }
 
@@ -485,40 +531,61 @@ export class MultiModalGuard {
     };
   }
 
-  private scanText(text: string): {
+  /**
+   * @param rawHeuristics - Whether to run the invisible-character and
+   * intra-token-homoglyph-mixing heuristics, which look for anomalies
+   * introduced by an attacker in the ORIGINAL text. Must be false when
+   * scanning an already-decoded/normalized variant: partial homoglyph
+   * normalization (only the small set of commonly-spoofed letters) applied
+   * to genuinely non-English text (e.g. a plain Cyrillic sentence) creates
+   * artificial intra-token script mixing that isn't an attack, and would
+   * otherwise false-positive on legitimate non-English content.
+   */
+  private scanText(text: string, rawHeuristics: boolean = true): {
     injectionFound: boolean;
     violations: string[];
     patterns: string[];
     riskContribution: number;
+    /** Per-violation-name contribution, for callers that need to dedupe
+     * risk score across multiple scanText() calls (e.g. across decode
+     * variants) without double-counting a violation seen more than once. */
+    contributionByViolation: Record<string, number>;
   } {
     const violations: string[] = [];
     const patterns: string[] = [];
+    const contributionByViolation: Record<string, number> = {};
     let riskContribution = 0;
 
     for (const { name, pattern } of this.INJECTION_PATTERNS) {
       if (pattern.test(text)) {
-        violations.push(`text_injection_${name}`);
+        const violationName = `text_injection_${name}`;
+        violations.push(violationName);
         patterns.push(name);
+        contributionByViolation[violationName] = 25;
         riskContribution += 25;
       }
     }
 
-    // Check for invisible unicode characters (used to hide instructions)
-    const invisibleCount = (text.match(/[\u200B-\u200D\uFEFF\u2060-\u206F]/g) || []).length;
-    if (invisibleCount > 5) {
-      violations.push("excessive_invisible_characters");
-      patterns.push(`invisible_unicode(${invisibleCount})`);
-      riskContribution += 20;
-    }
+    if (rawHeuristics) {
+      // Check for invisible unicode characters (used to hide instructions)
+      const invisibleCount = (text.match(/[\u200B-\u200D\uFEFF\u2060-\u206F]/g) || []).length;
+      if (invisibleCount > 5) {
+        violations.push("excessive_invisible_characters");
+        patterns.push(`invisible_unicode(${invisibleCount})`);
+        contributionByViolation["excessive_invisible_characters"] = 20;
+        riskContribution += 20;
+      }
 
-    // Check for homoglyph attacks \u2014 require intra-token script mixing (Cyrillic adjacent to Latin
-    // within a word), not just both scripts appearing anywhere in the document.
-    // "\u0430dmin" (Cyrillic \u0430 + Latin dmin) \u2192 attack. "\u041A\u0430\u043A \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C chroot?" \u2192 benign.
-    const intraTokenHomoglyph = /[a-zA-Z][\u0430-\u044F\u0410-\u042F]|[\u0430-\u044F\u0410-\u042F][a-zA-Z]/;
-    if (intraTokenHomoglyph.test(text)) {
-      violations.push("potential_homoglyph_attack");
-      patterns.push("mixed_scripts");
-      riskContribution += 15;
+      // Check for homoglyph attacks \u2014 require intra-token script mixing (Cyrillic adjacent to Latin
+      // within a word), not just both scripts appearing anywhere in the document.
+      // "\u0430dmin" (Cyrillic \u0430 + Latin dmin) \u2192 attack. "\u041A\u0430\u043A \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C chroot?" \u2192 benign.
+      const intraTokenHomoglyph = /[a-zA-Z][\u0430-\u044F\u0410-\u042F]|[\u0430-\u044F\u0410-\u042F][a-zA-Z]/;
+      if (intraTokenHomoglyph.test(text)) {
+        violations.push("potential_homoglyph_attack");
+        patterns.push("mixed_scripts");
+        contributionByViolation["potential_homoglyph_attack"] = 15;
+        riskContribution += 15;
+      }
     }
 
     return {
@@ -526,6 +593,7 @@ export class MultiModalGuard {
       violations,
       patterns,
       riskContribution: Math.min(60, riskContribution),
+      contributionByViolation,
     };
   }
 

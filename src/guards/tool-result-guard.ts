@@ -57,7 +57,10 @@ const RESULT_INJECTION_PATTERNS: Array<{ name: string; pattern: RegExp; severity
   { name: "bypass_safety", pattern: /bypass\s+(?:security|safety|filters|restrictions)/i, severity: "high" },
   { name: "data_exfiltration", pattern: /send\s+(?:this|the|all)\s+(?:data|info)\s+to|exfiltrate/i, severity: "critical" },
   { name: "hidden_instruction", pattern: /HIDDEN_PROMPT|HIDDEN_INSTRUCTION|INVISIBLE_TEXT/i, severity: "critical" },
-  { name: "markdown_injection", pattern: /!\[.*\]\(https?:\/\/[^)]*\?.*(?:token|key|secret|auth)/i, severity: "high" },
+  // Bounded — unbounded form was quadratic-time ReDoS (12s at 128KB) on
+  // content with many "![" substrings and no closing ")", same shape as
+  // rag-guard.ts's markdown_img_alt_injection.
+  { name: "markdown_injection", pattern: /!\[.{0,2000}\]\(https?:\/\/[^)]{0,1000}\?.{0,500}(?:token|key|secret|auth)/i, severity: "high" },
   // Exfiltration via URL in tool results instructing the LLM
   { name: "url_exfiltration", pattern: /(?:fetch|request|call|post|get|send|forward|transmit|relay)\s+(?:to|from)?\s*https?:\/\//i, severity: "critical" },
   { name: "url_data_leak", pattern: /https?:\/\/[^\s]+\?.*(?:data|prompt|conversation|history|context|message|response)=/i, severity: "critical" },
@@ -91,13 +94,19 @@ const RESULT_INJECTION_PATTERNS: Array<{ name: string; pattern: RegExp; severity
   // @AI-agent hijack via issue/PR/comment tool result
   { name: "ai_agent_hijack", pattern: /@(?:copilot|claude|assistant|gpt|gemini|bot|agent)\s+(?:please\s+)?(?:run|execute|create|delete|send|update|remove|drop|fetch|post|get)\b/i, severity: "critical" },
   // Markdown exfil using URL-encoded path separators (%2F=/, %5C=\)
-  { name: "markdown_injection_urlenc", pattern: /!\[.*?\]\(https?:\/\/[^)]+\?[^)]*=[^)]*%(?:2[Ff]|5[Cc])/i, severity: "high" },
+  // Bounded — same ReDoS shape as external-data-guard.ts's
+  // markdown_image_exfil_urlenc (4s+ at 160KB on pathological "![" runs).
+  { name: "markdown_injection_urlenc", pattern: /!\[.{0,2000}?\]\(https?:\/\/[^)]{1,1000}\?[^)]{0,500}=[^)]{0,500}%(?:2[Ff]|5[Cc])/i, severity: "high" },
   // JSON hidden agent directive keys (_system, _directive, etc.)
   { name: "json_system_key", pattern: /"_(?:system|directive|instruction|prompt|admin|command)"\s*:/i, severity: "critical" },
   // LangChain response_metadata serialization markers
   { name: "langchain_response_metadata", pattern: /response_metadata\.lc\s*=\s*[12]\b|\bkwargs\s*=\s*\{[^}]*exec\s*:\s*true/i, severity: "critical" },
   // Passive instruction-void forms (appear in prompt-injection-echo via tool separators)
-  { name: "instructions_void", pattern: /(?:your|the|previous|prior|all\s+(?:previous|prior))?\s*instructions?\s+(?:are|have\s+been|is)\s+(?:void|cancelled?|overridden?|revoked|rescinded|superseded)/i, severity: "critical" },
+  // Whitespace quantifiers bounded — see external-data-guard.ts's matching
+  // pattern for why (quadratic-time ReDoS on long non-matching input,
+  // independently discovered and fixed there — this occurrence was found
+  // by the same audit and carries an identical latent vulnerability).
+  { name: "instructions_void", pattern: /(?:your|the|previous|prior|all\s{1,5}(?:previous|prior))?\s{0,20}instructions?\s{1,10}(?:are|have\s{1,5}been|is)\s{1,10}(?:void|cancelled?|overridden?|revoked|rescinded|superseded)/i, severity: "critical" },
   { name: "forget_instructions", pattern: /forget\s+(?:your|all|the|my|these|every|each)\s*(?:previous\s+|prior\s+)?(?:instructions?|rules?|guidelines?|directives?|prompts?)/i, severity: "critical" },
   { name: "disregard_directives", pattern: /disregard\s+(?:all\s+)?(?:previous|prior|above|your)?\s*(?:instructions?|rules?|directives?|guidelines?|prompts?)/i, severity: "critical" },
 ];

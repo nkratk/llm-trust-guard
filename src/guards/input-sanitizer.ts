@@ -13,6 +13,7 @@
  */
 
 import { SanitizerResult, GuardLogger } from "../types";
+import { buildDecodeVariants } from "../decode-variants";
 
 interface InjectionPattern {
   pattern: RegExp;
@@ -91,7 +92,7 @@ const DEFAULT_PATTERNS: InjectionPattern[] = [
   { pattern: /<%.*system.*%>/i, weight: 0.85, name: "erb_system" },
 
   // Jailbreak patterns - ENHANCED
-  { pattern: /\bDAN\b\s*(?:mode|prompt|jailbreak|you\s+(?:are|can|will))/i, weight: 0.9, name: "dan_jailbreak" },
+  { pattern: /\bDAN\b\s*(?:mode|prompt|jailbreak|persona|character|you\s+(?:are|can|will))/i, weight: 0.9, name: "dan_jailbreak" },
   { pattern: /developer\s+mode/i, weight: 0.5, name: "dev_mode" },
   { pattern: /bypass\s+(your\s+)?(restrictions|filters|safety|security|rules|guidelines)/i, weight: 0.9, name: "bypass_safety" },
   { pattern: /jailbreak/i, weight: 0.95, name: "jailbreak_keyword" },
@@ -125,8 +126,10 @@ const DEFAULT_PATTERNS: InjectionPattern[] = [
   { pattern: /"\s*(?:role|mode|authority)\s*"\s*:\s*"(?:admin|root|system|unrestricted|god)"/i, weight: 0.9, name: "json_policy_role" },
   { pattern: /"(?:ignore|override|bypass|disable)\s*(?:safety|rules|instructions?|alignment|guardrails?)"/i, weight: 0.9, name: "json_policy_override" },
   { pattern: /"(?:instructions?|system_prompt|behavior|policy)"\s*:\s*"/i, weight: 0.7, name: "json_policy_instruction" },
-  { pattern: /^\s*\[(?:system|admin|override|policy|config|rules)\]\s*$/im, weight: 0.9, name: "ini_policy_section" },
-  { pattern: /^\s*(?:mode|role|authority|instructions?|behavior)\s*=\s*.+$/im, weight: 0.75, name: "ini_policy_assignment" },
+  // \s* bounded — unbounded form + /m was quadratic-time (2.5s+ at 40K
+  // newlines) since \s matches \n and every line boundary is a retry point.
+  { pattern: /^\s{0,20}\[(?:system|admin|override|policy|config|rules)\]\s{0,20}$/im, weight: 0.9, name: "ini_policy_section" },
+  { pattern: /^\s{0,20}(?:mode|role|authority|instructions?|behavior)\s{0,10}=\s{0,10}.+$/im, weight: 0.75, name: "ini_policy_assignment" },
   { pattern: /<\s*(?:policy|config|rules|override|permissions?|instructions?)\s*>/i, weight: 0.85, name: "xml_policy_tag" },
   { pattern: /^---\s*\n\s*(?:role|system|policy|override|mode)\s*:/m, weight: 0.85, name: "yaml_policy_header" },
   { pattern: /\[\s*syst[3e]m\s*\]|\[\s*4dm[1i]n\s*\]/i, weight: 0.9, name: "leetspeak_policy_section" },
@@ -229,7 +232,9 @@ const DEFAULT_PATTERNS: InjectionPattern[] = [
   { pattern: /system\s+override\s+(?:engaged?|activated?|enabled?|initiated?)/i, weight: 0.85, name: "system_override_engaged" },
 
   // Passive instruction-void declaratives (evades imperative-verb patterns; caught after ZWSP strip)
-  { pattern: /(?:your|the|previous|prior|all\s+(?:previous|prior))?\s*instructions?\s+(?:are|have\s+been|is)\s+(?:void|null|cancelled?|invalid|overridden?|revoked|rescinded|superseded)/i, weight: 0.85, name: "instructions_void" },
+  // Whitespace quantifiers bounded — see external-data-guard.ts's matching
+  // pattern for why (quadratic-time ReDoS on long non-matching input).
+  { pattern: /(?:your|the|previous|prior|all\s{1,5}(?:previous|prior))?\s{0,20}instructions?\s{1,10}(?:are|have\s{1,5}been|is)\s{1,10}(?:void|null|cancelled?|invalid|overridden?|revoked|rescinded|superseded)/i, weight: 0.85, name: "instructions_void" },
   { pattern: /forget\s+(?:your|all|the|my|these|every|each)\s*(?:previous\s+|prior\s+)?(?:instructions?|rules?|guidelines?|directives?|prompts?|context)/i, weight: 0.85, name: "forget_your_instructions" },
 ];
 
@@ -282,10 +287,12 @@ const PAP_TECHNIQUES: PersuasionTechnique[] = [
   // RECIPROCITY - Offering something in return (enhanced)
   { pattern: /i('ll| will)\s+(give|pay|reward|tip).*(?:if\s+you|for\s+(?:bypass|ignore|reveal|override))/i, weight: 0.55, name: "pap_reciprocity_reward", category: "reciprocity" },
   { pattern: /in\s+(return|exchange)/i, weight: 0.5, name: "pap_reciprocity_exchange", category: "reciprocity" },
-  { pattern: /\$?\d+\s*(dollar|tip|reward|payment)/i, weight: 0.55, name: "pap_reciprocity_money", category: "reciprocity" },
+  // \d+/\s* bounded — unbounded form was quadratic-time ReDoS on long non-matching input.
+  { pattern: /\$?\d{1,10}\s{0,5}(dollar|tip|reward|payment)/i, weight: 0.55, name: "pap_reciprocity_money", category: "reciprocity" },
   { pattern: /if\s+you\s+help\s+(me|us),?\s+(i|we)('ll| will)/i, weight: 0.5, name: "pap_reciprocity_help", category: "reciprocity" },
   { pattern: /i('ve| have)\s+(already\s+)?(helped|supported|defended)\s+you/i, weight: 0.55, name: "pap_reciprocity_past", category: "reciprocity" },
-  { pattern: /\d+\s*star\s*(review|rating)/i, weight: 0.5, name: "pap_reciprocity_review", category: "reciprocity" },
+  // Bounded — same ReDoS shape as pap_reciprocity_money above.
+  { pattern: /\d{1,4}\s{0,5}star\s{0,5}(review|rating)/i, weight: 0.5, name: "pap_reciprocity_review", category: "reciprocity" },
 
   // COMMITMENT/CONSISTENCY - Referencing past behavior (high risk)
   { pattern: /you\s+(already|previously|just)\s+(said|agreed|confirmed|allowed)/i, weight: 0.7, name: "pap_commitment_previous", category: "commitment" },
@@ -319,7 +326,8 @@ const PAP_TECHNIQUES: PersuasionTechnique[] = [
   // EVIDENCE - Citing fake evidence
   { pattern: /according\s+to\s+(research|studies|scientists|experts?)/i, weight: 0.4, name: "pap_evidence_research", category: "evidence" },
   { pattern: /it('s| is)\s+(proven|documented|established|verified)\s+(that|fact)/i, weight: 0.45, name: "pap_evidence_proven", category: "evidence" },
-  { pattern: /\d+%\s+of\s+(experts?|scientists?|users?|people)\s+(agree|say|confirm)/i, weight: 0.45, name: "pap_evidence_statistics", category: "evidence" },
+  // Bounded — same ReDoS shape as pap_reciprocity_money above.
+  { pattern: /\d{1,3}%\s{1,5}of\s{1,5}(experts?|scientists?|users?|people)\s{1,5}(agree|say|confirm)/i, weight: 0.45, name: "pap_evidence_statistics", category: "evidence" },
 
   // EMOTIONAL MANIPULATION - Guilt, sympathy, desperation (enhanced)
   { pattern: /i('m| am)\s+(desperate|dying|suffering|sick|depressed)/i, weight: 0.6, name: "pap_emotional_desperation", category: "emotional" },
@@ -361,8 +369,10 @@ const BENIGN_TRIGGER_RE =
  * prompts do not contain URLs, emails, credentials, shell pipes, or amounts, so
  * they remain suppressed.
  */
+// Email branch bounded — same ReDoS shape as ExternalDataGuard's
+// email_address (10s+ on long non-matching input; here 5.7s at 60KB).
 const SUPPRESSION_VETO_RE =
-  /https?:\/\/|[\w.+-]+@[\w-]+\.[a-z]{2,}|\b(?:api[\s_-]?keys?|passwords?|passwd|secrets?|credentials?|private\s+keys?|ssn|social\s+security|access\s+tokens?)\b|\bexfiltrat\w*|\brm\s+-rf\b|\|\s*sh\b|\bcurl\b|\bwget\b|\bdelete\s+(?:every|all|the)\s+(?:files?|director\w+|database)\b|\bdrop\s+(?:table|database)\b|\$\s?\d{2,}|\baccount\s+#?\d{6,}\b/i;
+  /https?:\/\/|[\w.+-]{1,64}@(?:[\w-]{1,63}\.){1,8}[a-z]{2,24}|\b(?:api[\s_-]?keys?|passwords?|passwd|secrets?|credentials?|private\s+keys?|ssn|social\s+security|access\s+tokens?)\b|\bexfiltrat\w*|\brm\s+-rf\b|\|\s*sh\b|\bcurl\b|\bwget\b|\bdelete\s+(?:every|all|the)\s+(?:files?|director\w+|database)\b|\bdrop\s+(?:table|database)\b|\$\s?\d{2,}|\baccount\s+#?\d{6,}\b/i;
 
 export interface InputSanitizerConfig {
   threshold?: number;
@@ -555,23 +565,7 @@ export class InputSanitizer {
    * Basic input sanitization
    */
   private buildInputVariants(text: string): string[] {
-    const variants = new Set<string>();
-    if (text.includes("%")) {
-      try { const d = decodeURIComponent(text.replace(/\+/g, " ")); if (d !== text) variants.add(d); } catch {}
-    }
-    const hex = text.replace(/\s/g, "");
-    if (hex.length >= 20 && /^[0-9a-fA-F]+$/.test(hex)) {
-      try { const d = Buffer.from(hex, "hex").toString("utf-8"); if (d !== text) variants.add(d); } catch {}
-    }
-    const b64 = text.replace(/\s/g, "");
-    if (b64.length >= 16 && /^[A-Za-z0-9+/]+=*$/.test(b64)) {
-      try { const d = Buffer.from(b64, "base64").toString("utf-8"); if (d !== text) variants.add(d); } catch {}
-    }
-    const rev = text.split("").reverse().join("");
-    if (rev !== text) variants.add(rev);
-    const normed = text.replace(/[аеіоруАЕІОРУ]/g, c => ({ а:"a",е:"e",і:"i",о:"o",р:"p",у:"y",А:"A",Е:"E",І:"I",О:"O",Р:"P",У:"Y" }[c] ?? c));
-    if (normed !== text) variants.add(normed);
-    return [...variants];
+    return buildDecodeVariants(text);
   }
 
   private basicSanitize(input: string): string {

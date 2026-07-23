@@ -126,9 +126,12 @@ const SHELL_PATTERNS: Array<{ pattern: RegExp; label: string; severity: OutputTh
 ];
 
 /** Markdown image whose URL carries a query string (auto-fetch exfil channel) */
-const MARKDOWN_IMAGE = /!\[[^\]]*\]\(\s*(https?:\/\/[^)\s]+)\s*\)/gi;
+// Bounded — unbounded [^\]]*/[^)\s]+ was quadratic-time ReDoS (1.1s+ at 40KB)
+// on content with many "![" substrings and no closing "]"/")".
+const MARKDOWN_IMAGE = /!\[[^\]]{0,2000}\]\(\s{0,50}(https?:\/\/[^)\s]{1,1000})\s{0,50}\)/gi;
 /** Markdown link (for allowedDomains enforcement) */
-const MARKDOWN_LINK = /(?<!!)\[[^\]]*\]\(\s*(https?:\/\/[^)\s]+)\s*\)/gi;
+// Bounded — same ReDoS shape as MARKDOWN_IMAGE above.
+const MARKDOWN_LINK = /(?<!!)\[[^\]]{0,2000}\]\(\s{0,50}(https?:\/\/[^)\s]{1,1000})\s{0,50}\)/gi;
 
 const HTML_ENTITY_NAMED: Record<string, string> = { lt: "<", gt: ">", amp: "&", quot: '"', apos: "'" };
 
@@ -169,7 +172,9 @@ function decodeVariants(text: string): string[] {
 }
 
 /** Spreadsheet formula-injection: a cell that starts with a formula trigger */
-const CSV_TRIGGER = /(?:^|[\n\r,;\t])\s*([=+\-@][^\n\r,;\t]{0,200})/g;
+// Bounded — unbounded \s* was quadratic-time ReDoS (1.4s+ at 30K newlines,
+// since \s matches \n and every line boundary is a retry point).
+const CSV_TRIGGER = /(?:^|[\n\r,;\t])\s{0,50}([=+\-@][^\n\r,;\t]{0,200})/g;
 /** Dangerous functions that make a leading + - @ unambiguously an attack */
 const CSV_DANGEROUS_FN = /\b(?:HYPERLINK|IMPORTXML|IMPORTDATA|IMPORTHTML|IMPORTFEED|IMPORTRANGE|WEBSERVICE|DDE|MSEXCEL)\b|cmd\s*\||^\s*=[\w.]+\s*\(/i;
 // Named exfil/command functions only (excludes CSV_DANGEROUS_FN's generic

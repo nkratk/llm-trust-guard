@@ -163,6 +163,24 @@ describe("OutputFilter", () => {
         const r = f.filter("Please upgrade to v10.4.32.3 — the server at 192.168.1.1 needs it too");
         expect(r.filtered_response).toBe("Please upgrade to v10.4.32.3 — the server at [IP_ADDRESS] needs it too");
       });
+
+      it("does not flag a version string via the reversed-string obfuscation scan variant (regression)", () => {
+        // Independent review found this exact input, scanned through the full
+        // obfuscation-scan pipeline (not just the standalone regex): reversing
+        // "release 12.34.56.78 today" scrambles "release" -> "esaeler" (no
+        // longer matches the keyword) while the digit-and-dot IP shape
+        // survives (just reordered as "87.65.43.21"), so the reversed variant
+        // independently re-flagged a version string the original text
+        // correctly suppressed.
+        expect(isIpDetected("release 12.34.56.78 today")).toBe(false);
+      });
+
+      it("still detects genuinely obfuscated PII (email) via the same scan-variant pipeline", () => {
+        // Confirms the fix above is scoped to ip_address only, not a
+        // blanket disabling of obfuscation-variant scanning.
+        const r = f.filter("dXNlckBleGFtcGxlLmNvbQ==");
+        expect(r.pii_detected.some((p) => p.type === "email")).toBe(true);
+      });
     });
 
     it("detects a Luhn-valid credit card with non-4-4-4-4 grouping", () => {

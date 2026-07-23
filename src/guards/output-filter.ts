@@ -402,6 +402,21 @@ export class OutputFilter {
       for (const target of scanTargets) {
         for (const pattern of this.config.piiPatterns!) {
           if (detectedPII.has(pattern.name)) continue;
+          // ip_address's version-string exclusion (see the pattern's own
+          // comment) only makes sense against the original text — the
+          // reversed scan variant scrambles a version keyword ("release"
+          // -> "esaeler", no longer matches) while the digit-and-dot IP
+          // shape survives (just reordered), so scanning it would
+          // independently re-flag a version string the original text
+          // correctly suppressed. Found by independent review testing
+          // "release 12.34.56.78 today" through the full obfuscation-scan
+          // pipeline, not just the standalone regex. IP addresses are also
+          // a much less likely deliberate-obfuscation target than
+          // email/SSN/credit-card in this guard's threat model, so
+          // skipping variant scans here trades a narrow, unlikely miss
+          // (a genuinely-obfuscated real IP) for closing a concrete,
+          // reproducible false-positive-via-reversal bug.
+          if (pattern.name === "ip_address" && target !== outputStr) continue;
           let matches: string[] | null = target.match(pattern.pattern);
           if (matches && pattern.validate) {
             matches = matches.filter((m) => pattern.validate!(m));

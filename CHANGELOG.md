@@ -5,6 +5,18 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Permanent ReDoS-safety regression test** (`tests/redos-safety.test.ts`): extracts every regex pattern in `src/` and stress-tests each against a fixed adversarial seed corpus, so a catastrophic-backtracking regex fails the test suite immediately instead of shipping and being found later by a manual sweep. Writing this test found two more real cases the v4.32.5 manual sweep had missed.
+- **Content-length consistency regression test** (`tests/decode-variants.test.ts`): asserts `decode-variants.ts`'s input cap is never smaller than any guard's own `maxContentLength` default, closing the specific silent-bypass bug class a v4.32.5 pre-merge review caught, so it can't silently recur.
+- `.githooks/pre-push` now fetches origin's tags before running `scripts/verify.sh`, closing a gap where a stale local tag could make the G6/G9/G11 gates pass locally while CI (which always sees origin's tags) correctly failed on the identical commit.
+
+### Fixed
+
+- `heuristic-analyzer.ts`'s `qaPattern` (`(?:Q:|Question:|Human:|User:)[\s\S]*?(?:A:|Answer:|Assistant:|AI:)`) was catastrophic-backtracking on long content with many "User:"/"Q:" markers and no closing "A:"/"AI:" — found by the new permanent ReDoS-safety test, not the earlier manual sweep rounds. Bounded the lazy quantifier.
+
 ## [4.32.5] - 2026-07-22
 
 ### Fixed

@@ -334,7 +334,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
-Every regex pattern across every guard was stress-tested against pathological (non-attack) input to find and fix catastrophic-backtracking (ReDoS) vulnerabilities — see the CHANGELOG for details. This was a one-time manual sweep, not yet an automated CI check; treat new regex patterns added after this pass with the same scrutiny.
+Every regex pattern across every guard was stress-tested against pathological (non-attack) input to find and fix catastrophic-backtracking (ReDoS) vulnerabilities — see the CHANGELOG for details. This is now a permanent, automated check (`tests/redos-safety.test.ts`, part of the standard test suite) rather than a one-off manual sweep — writing it found two more real cases (`heuristic-analyzer.ts`) the earlier manual rounds had missed.
 
 ## License
 

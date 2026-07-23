@@ -329,7 +329,11 @@ export class HeuristicAnalyzer {
     let score = 0;
 
     // Many-shot detection: count Q&A-like pairs
-    const qaPattern = /(?:Q:|Question:|Human:|User:)[\s\S]*?(?:A:|Answer:|Assistant:|AI:)/gi;
+    // Bounded — unbounded [\s\S]*? was quadratic-time ReDoS on long
+    // content with many "User:"/"Q:" markers and no closing "A:"/"AI:"
+    // (found by the permanent tests/redos-safety.test.ts sweep, not the
+    // earlier manual rounds — this file wasn't caught by those).
+    const qaPattern = /(?:Q:|Question:|Human:|User:)[\s\S]{0,1000}?(?:A:|Answer:|Assistant:|AI:)/gi;
     const qaMatches = input.match(qaPattern) || [];
     const is_shot_attack = qaMatches.length >= this.config.manyShotThreshold;
     if (is_shot_attack) {

@@ -147,6 +147,18 @@ describe("OutputFilter", () => {
         expect(isIpDetected("Chapter V 10.0.0.1")).toBe(true);
       });
 
+      it("does not suppress a real IP when a version-indicating keyword appears nearby but in a different clause (regression)", () => {
+        // Independent review found an earlier version of this fix — whose gap tolerated any
+        // 15 non-digit chars, including full clause boundaries — silently left this IP
+        // undetected AND unmasked, because "release" here is a document-section label with
+        // no relation to the number, but still fell within the (too permissive) gap.
+        expect(isIpDetected("This release: connect to 10.4.32.3 for support")).toBe(true);
+        expect(isIpDetected("Release notes. The server at 10.4.32.3 is down")).toBe(true);
+        expect(isIpDetected("upgrade, IP is 10.4.32.3")).toBe(true);
+        const r = f.filter("This release: connect to 10.4.32.3 for support");
+        expect(r.filtered_response).toBe("This release: connect to [IP_ADDRESS] for support");
+      });
+
       it("masks real IPs but leaves version strings unmasked, in the same string", () => {
         const r = f.filter("Please upgrade to v10.4.32.3 — the server at 192.168.1.1 needs it too");
         expect(r.filtered_response).toBe("Please upgrade to v10.4.32.3 — the server at [IP_ADDRESS] needs it too");

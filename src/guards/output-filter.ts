@@ -145,14 +145,24 @@ export class OutputFilter {
       // ambiguous case (every octet valid, e.g. "10.4.32.3" — structurally
       // identical to a real IPv4 address by shape alone) a negative
       // lookbehind suppresses the match when a version-indicating keyword
-      // (version/release/upgrade/update) appears shortly before it — this
-      // doesn't fully disambiguate (an out-of-band "10.4.32.3" with no such
-      // keyword nearby is still flagged, correctly erring toward recall),
-      // but closes the specific reported case. A bare "v" prefix (e.g.
-      // "v10.4.32.3") needs no special handling — the leading \b already
-      // excludes it, since a digit immediately preceded by a letter is
-      // word-to-word (no boundary) either way.
-      pattern: /\b(?<!\b(?:version|release|upgrade|update)\b[^\d\n]{0,15})(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}\b/gi,
+      // (version/release/upgrade/update) appears shortly before it, IN THE
+      // SAME CLAUSE — the gap excludes ":;.," (clause/sentence-break
+      // punctuation) as well as digits/newlines, so "upgrade to 10.4.32.3"
+      // (no break) still suppresses but "This release: connect to
+      // 10.4.32.3" (colon breaks the clause — "release" is a document
+      // label, unrelated to the number) does not. An earlier version only
+      // excluded digits/newlines from the gap and was too permissive —
+      // independent review found it silently left a real IP undetected
+      // AND unmasked ("This release: connect to 10.4.32.3 for support")
+      // whenever a keyword appeared anywhere within 15 chars regardless of
+      // clause boundaries, which is a worse outcome (a real leak) than the
+      // false positive being fixed. Doesn't fully disambiguate the shape
+      // ambiguity for an out-of-band version string with no keyword nearby
+      // at all — still flagged, correctly erring toward recall. A bare "v"
+      // prefix (e.g. "v10.4.32.3") needs no special handling — the leading
+      // \b already excludes it, since a digit immediately preceded by a
+      // letter is word-to-word (no boundary) either way.
+      pattern: /\b(?<!\b(?:version|release|upgrade|update)\b[^\d\n:;.,]{0,15})(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}\b/gi,
       maskAs: "[IP_ADDRESS]",
     },
     {

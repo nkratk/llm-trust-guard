@@ -123,6 +123,36 @@ describe("OutputFilter", () => {
       expect(r.pii_detected.some((p) => p.type === "ip_address")).toBe(false);
     });
 
+    describe("ip_address version-string false positive (#10)", () => {
+      const f = new OutputFilter();
+      const isIpDetected = (text: string) => f.filter(text).pii_detected.some((p) => p.type === "ip_address");
+
+      it("does not flag a version string preceded by a version-indicating keyword", () => {
+        expect(isIpDetected("Please upgrade to 10.4.32.3 before Friday")).toBe(false);
+        expect(isIpDetected("Now on version 10.4.32.3")).toBe(false);
+        expect(isIpDetected("release 10.4.32.3 is out")).toBe(false);
+        expect(isIpDetected("Update to v10.4.32.3 today")).toBe(false);
+        expect(isIpDetected("V10.4.32.3")).toBe(false);
+      });
+
+      it("still flags real IP addresses, including near-miss cases", () => {
+        expect(isIpDetected("The server IP is 192.168.1.1, contact admin.")).toBe(true);
+        expect(isIpDetected("Connect to 10.0.0.1 via SSH")).toBe(true);
+        // version keyword present but too far from the number to plausibly qualify it
+        expect(isIpDetected("Server version 2.1 is running at 10.4.32.3")).toBe(true);
+        expect(isIpDetected("Blocklisted address: 8.8.8.8")).toBe(true);
+        // "coverage"/"diverse" contain "ver" as a substring — must not trip the keyword check
+        expect(isIpDetected("diverse coverage from 172.16.0.5")).toBe(true);
+        // Roman numeral "V" with a space is not the tight no-gap "v10.4.32.3" prefix case
+        expect(isIpDetected("Chapter V 10.0.0.1")).toBe(true);
+      });
+
+      it("masks real IPs but leaves version strings unmasked, in the same string", () => {
+        const r = f.filter("Please upgrade to v10.4.32.3 — the server at 192.168.1.1 needs it too");
+        expect(r.filtered_response).toBe("Please upgrade to v10.4.32.3 — the server at [IP_ADDRESS] needs it too");
+      });
+    });
+
     it("detects a Luhn-valid credit card with non-4-4-4-4 grouping", () => {
       const f = new OutputFilter();
       const pan = "5555555555554444";

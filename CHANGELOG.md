@@ -5,6 +5,12 @@ All notable changes to `llm-trust-guard` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `OutputFilter`'s `ip_address` pattern false-positived on dotted version strings whose every component happens to be a valid octet (e.g. "10.4.32.3", structurally identical to a real IPv4 address by shape alone) — closes #10. A negative lookbehind now suppresses the match when a version-indicating keyword (`version`/`release`/`upgrade`/`update`) appears shortly before it, without weakening detection of real IPs (including when the same keyword appears too far away to plausibly qualify the number, e.g. "Server version 2.1 is running at 10.4.32.3"). A bare `v` prefix (e.g. "v10.4.32.3") needed no special-casing — the pattern's own leading `\b` already excludes it, since a digit immediately preceded by a letter is word-to-word with no boundary either way (confirmed empirically before shipping a redundant lookbehind clause for it). Doesn't fully resolve the shape ambiguity for an out-of-band version string with no such keyword nearby — that case is still flagged, deliberately erring toward recall over precision for a security-relevant pattern, consistent with this guard's established convention.
+
 ## [4.32.6] - 2026-07-23
 
 ### Added

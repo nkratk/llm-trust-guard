@@ -306,6 +306,8 @@ WildChat filters toxic content but not prompt-injection intent. Canonical-marker
 
 For higher detection on adversarial corpora, plug in an ML classifier via the [DetectionClassifier interface](#pluggable-detection).
 
+**Fixed since v4.32.6 (unreleased):** `OutputFilter`'s `ip_address` no longer false-positives on version strings like "10.4.32.3" preceded by a version-indicating keyword (#10).
+
 ## Defense In Depth
 
 This package is one layer. For production systems, combine with:

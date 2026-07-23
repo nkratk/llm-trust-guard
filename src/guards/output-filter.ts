@@ -141,11 +141,18 @@ export class OutputFilter {
     {
       name: "ip_address",
       // Bound each octet 0-255 so obviously-invalid shapes (e.g. version
-      // strings with an octet >255) are excluded. This is a partial fix only:
-      // a dotted-numeric string whose every component happens to be a valid
-      // octet (e.g. "10.4.32.3") is inherently ambiguous with a real IPv4
-      // address by shape alone — full disambiguation needs context, not regex.
-      pattern: /\b(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}\b/g,
+      // strings with an octet >255) are excluded. For the remaining
+      // ambiguous case (every octet valid, e.g. "10.4.32.3" — structurally
+      // identical to a real IPv4 address by shape alone) a negative
+      // lookbehind suppresses the match when a version-indicating keyword
+      // (version/release/upgrade/update) appears shortly before it — this
+      // doesn't fully disambiguate (an out-of-band "10.4.32.3" with no such
+      // keyword nearby is still flagged, correctly erring toward recall),
+      // but closes the specific reported case. A bare "v" prefix (e.g.
+      // "v10.4.32.3") needs no special handling — the leading \b already
+      // excludes it, since a digit immediately preceded by a letter is
+      // word-to-word (no boundary) either way.
+      pattern: /\b(?<!\b(?:version|release|upgrade|update)\b[^\d\n]{0,15})(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}\b/gi,
       maskAs: "[IP_ADDRESS]",
     },
     {

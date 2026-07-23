@@ -80,5 +80,18 @@ describe("buildDecodeVariants", () => {
     it("handles empty input without throwing", () => {
       expect(() => buildDecodeVariants("")).not.toThrow();
     });
+
+    it("still decodes content within a guard's default maxContentLength (regression: the cap used to sit below it)", () => {
+      // ExternalDataGuard's default maxContentLength is 50,000 — content
+      // under that limit is neither rejected for size nor, previously,
+      // decoded, because the decode-variant cap (20,000) was smaller than
+      // the guard's own size threshold. That gap is why the cap now sits
+      // well above every guard's default maxContentLength.
+      const raw = "http://169.254.169.254/latest/meta-data/iam/security-credentials/";
+      const b64 = Buffer.from(raw).toString("base64");
+      const content = " ".repeat(45_000) + b64;
+      const variants = buildDecodeVariants(content);
+      expect(variants.some(v => v.includes("169.254.169.254"))).toBe(true);
+    });
   });
 });

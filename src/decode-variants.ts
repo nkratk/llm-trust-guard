@@ -55,15 +55,16 @@ function applyOneStepTransforms(text: string): string[] {
   return out;
 }
 
-// Obfuscated payloads in practice are short (a wrapped phrase, a URL, a
-// jailbreak sentence) — there is no legitimate reason to decode-and-rescan
-// tens of thousands of characters just to catch one hidden instruction.
-// Capping input size here is deliberate defense-in-depth against
-// catastrophic-backtracking regexes elsewhere in the codebase: this
-// function turns ONE pattern-scan of the input into up to 40 (one per
-// decode variant), so any latent ReDoS in a caller's pattern set becomes
-// ~40x more reachable unless the input fed through it is bounded.
-const MAX_INPUT_LENGTH = 20_000;
+// Some cap is still worth keeping as defense-in-depth against any
+// not-yet-found catastrophic-backtracking regex elsewhere in the codebase
+// (this function turns ONE pattern-scan into up to 40), but a cap below a
+// guard's own maxContentLength is a silent detection bypass, not safety —
+// content between the two thresholds is neither decoded nor rejected for
+// size. Set well above every guard's default maxContentLength (largest is
+// ExternalDataGuard's 50,000) with headroom, since every guard pattern in
+// this codebase has been verified to scan linearly (not quadratically)
+// even at 200,000+ characters — see CHANGELOG's ReDoS hardening entry.
+const MAX_INPUT_LENGTH = 100_000;
 
 /**
  * Build de-obfuscated variants of `text` for re-scanning, chaining

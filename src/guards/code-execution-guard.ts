@@ -98,6 +98,18 @@ export interface SandboxConfig {
   envVars: Record<string, string>;
 }
 
+// blockedImports/blockedFunctions are operator-configurable (this.config.*),
+// not per-request user input, but they're interpolated directly into
+// `new RegExp(...)` template strings below to build the import/function
+// blocklist patterns. Escaping regex metacharacters is defense in depth —
+// an unescaped value containing regex syntax could otherwise both silently
+// change what the pattern actually matches and (with a sufficiently
+// adversarial config value) reintroduce the class of unbounded/ambiguous
+// quantifier this file's sibling guards were hardened against elsewhere.
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export class CodeExecutionGuard {
   private config: Required<Omit<CodeExecutionGuardConfig, "analyzerBackend">>;
   private analyzerBackend?: CodeAnalyzerBackend;
@@ -390,11 +402,12 @@ export class CodeExecutionGuard {
     ];
 
     for (const blockedImport of blockedImports) {
+      const escapedImport = escapeRegExp(blockedImport);
       const importPatterns = [
-        new RegExp(`require\\s*\\(\\s*['"]${blockedImport}['"]\\s*\\)`, "g"),
-        new RegExp(`import\\s+.*from\\s+['"]${blockedImport}['"]`, "g"),
-        new RegExp(`import\\s+${blockedImport}`, "g"),
-        new RegExp(`from\\s+${blockedImport}\\s+import`, "g"),
+        new RegExp(`require\\s*\\(\\s*['"]${escapedImport}['"]\\s*\\)`, "g"),
+        new RegExp(`import\\s+.*from\\s+['"]${escapedImport}['"]`, "g"),
+        new RegExp(`import\\s+${escapedImport}`, "g"),
+        new RegExp(`from\\s+${escapedImport}\\s+import`, "g"),
       ];
 
       for (const pattern of importPatterns) {
@@ -408,7 +421,7 @@ export class CodeExecutionGuard {
 
     // Check blocked functions
     for (const blockedFunc of this.config.blockedFunctions) {
-      const funcPattern = new RegExp(`\\b${blockedFunc}\\s*\\(`, "g");
+      const funcPattern = new RegExp(`\\b${escapeRegExp(blockedFunc)}\\s*\\(`, "g");
       if (funcPattern.test(code)) {
         violations.push(`blocked_function_${blockedFunc}`);
         dangerousFunctions.push(blockedFunc);
@@ -578,11 +591,12 @@ export class CodeExecutionGuard {
     ];
 
     for (const blockedImport of blockedImports) {
+      const escapedImport = escapeRegExp(blockedImport);
       const importPatterns = [
-        new RegExp(`require\\s*\\(\\s*['"]${blockedImport}['"]\\s*\\)`, "g"),
-        new RegExp(`import\\s+.*from\\s+['"]${blockedImport}['"].*`, "gm"),
-        new RegExp(`import\\s+${blockedImport}.*`, "gm"),
-        new RegExp(`from\\s+${blockedImport}\\s+import.*`, "gm"),
+        new RegExp(`require\\s*\\(\\s*['"]${escapedImport}['"]\\s*\\)`, "g"),
+        new RegExp(`import\\s+.*from\\s+['"]${escapedImport}['"].*`, "gm"),
+        new RegExp(`import\\s+${escapedImport}.*`, "gm"),
+        new RegExp(`from\\s+${escapedImport}\\s+import.*`, "gm"),
       ];
 
       for (const pattern of importPatterns) {

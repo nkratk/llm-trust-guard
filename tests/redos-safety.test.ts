@@ -26,10 +26,27 @@ import * as ts from "typescript";
  * directly as call arguments, array elements, non-`pattern`-named object
  * properties, and class fields. The AST walk catches all of these uniformly
  * since it doesn't care what syntactic position a `RegularExpressionLiteral`
- * node sits in. (`new RegExp(...)` calls built from runtime template
- * strings are structurally exempt — they can't be resolved statically.)
+ * node sits in.
+ *
+ * `new RegExp(...)` calls are also resolved where statically possible: a
+ * plain string/no-substitution template literal, or a template literal
+ * whose only substitutions reference a module-level `const NAME = "..."`
+ * string constant in the same file (e.g. output-guard.ts's
+ * `new RegExp(\`&&\\s*(?:${"${DESTRUCTIVE_SHELL_VERBS}"})\\b\`, "i")`).
+ * Calls built from genuinely runtime/per-instance values (e.g.
+ * code-execution-guard.ts's blocklist patterns, built from
+ * operator-configurable `this.config.blockedImports`) are structurally
+ * unresolvable via static analysis and are NOT covered by this test — an
+ * earlier version of this docstring overclaimed "every regex literal" as
+ * unqualified full coverage; independent review pointed out `new RegExp()`
+ * call sites existed that weren't covered at all, some of which (like the
+ * output-guard.ts case) turned out to be staticly resolvable after all, so
+ * this is now handled where possible and documented honestly where it
+ * can't be. Those remaining unresolvable sites are lower risk than a
+ * silently-missed static pattern would be: their content comes from
+ * operator configuration, not attacker-controlled request data.
  * Extracted patterns are stress-tested against the seed corpus that
- * actually found all 43 real bugs across the multiple escalating rounds of
+ * actually found the real bugs across the multiple escalating rounds of
  * this session.
  *
  * Detection strategy: SCALING RATIO for the structural seeds, not a single
@@ -74,12 +91,48 @@ function walk(dir: string): string[] {
   return out;
 }
 
+// Resolves a template literal to a plain string if every substitution is a
+// bare identifier reference to a known module-level string constant.
+// Returns null if any part can't be statically resolved (a genuinely
+// dynamic/runtime value, e.g. `this.config.blockedImports`).
+function resolveTemplateLiteral(node: ts.TemplateLiteral, constants: Map<string, string>): string | null {
+  if (ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+  if (!ts.isTemplateExpression(node)) return null;
+  let out = node.head.text;
+  for (const span of node.templateSpans) {
+    if (!ts.isIdentifier(span.expression)) return null;
+    const resolved = constants.get(span.expression.text);
+    if (resolved === undefined) return null;
+    out += resolved + span.literal.text;
+  }
+  return out;
+}
+
+function resolveNewRegExpArg(node: ts.Expression, constants: Map<string, string>): string | null {
+  if (ts.isStringLiteral(node)) return node.text;
+  if (ts.isTemplateLiteral(node)) return resolveTemplateLiteral(node, constants);
+  return null;
+}
+
 function extractPatterns(): ExtractedPattern[] {
   const patterns: ExtractedPattern[] = [];
   for (const file of walk(SRC_DIR)) {
     const src = fs.readFileSync(file, "utf8");
     const relFile = path.relative(path.join(__dirname, ".."), file);
     const sourceFile = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true);
+
+    // First pass: collect module-level `const NAME = "literal string"`
+    // declarations, so a `new RegExp(\`...${NAME}...\`)` template can be
+    // statically resolved below.
+    const constants = new Map<string, string>();
+    for (const stmt of sourceFile.statements) {
+      if (!ts.isVariableStatement(stmt)) continue;
+      for (const decl of stmt.declarationList.declarations) {
+        if (ts.isIdentifier(decl.name) && decl.initializer && ts.isStringLiteral(decl.initializer)) {
+          constants.set(decl.name.text, decl.initializer.text);
+        }
+      }
+    }
 
     const visit = (node: ts.Node) => {
       if (ts.isRegularExpressionLiteral(node)) {
@@ -88,6 +141,23 @@ function extractPatterns(): ExtractedPattern[] {
         } catch {
           /* malformed/unsupported regex literal — skip */
         }
+      } else if (
+        ts.isNewExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === "RegExp" &&
+        node.arguments && node.arguments.length > 0
+      ) {
+        const patternStr = resolveNewRegExpArg(node.arguments[0], constants);
+        if (patternStr !== null) {
+          const flagsArg = node.arguments[1];
+          const flags = flagsArg && ts.isStringLiteral(flagsArg) ? flagsArg.text : "";
+          try {
+            patterns.push({ file: relFile, source: `new RegExp(${JSON.stringify(patternStr)}, ${JSON.stringify(flags)})`, regex: new RegExp(patternStr, flags) });
+          } catch {
+            /* invalid pattern/flags once resolved — skip */
+          }
+        }
+        /* else: genuinely dynamic (e.g. built from this.config.*) — not statically resolvable, skip */
       }
       ts.forEachChild(node, visit);
     };
@@ -151,11 +221,21 @@ describe("ReDoS safety sweep (every regex in src/)", () => {
   it("extracted a non-trivial number of patterns (sanity check the extractor itself still works)", () => {
     // If this ever drops sharply, the AST walk has stopped matching this
     // codebase's actual shape and is silently testing far less than it
-    // should — fail loudly rather than pass vacuously. (An earlier
-    // text-scanning extractor here found ~150; the AST walk finds ~1000+
-    // by also catching call-argument/array-element/local-const literals it
-    // missed — see the file docstring.)
+    // should — fail loudly rather than pass vacuously. (The earlier
+    // text-scanning extractor found ~751 regex literals; the AST walk
+    // finds all 1052 by also catching call-argument/array-element/
+    // local-const literals it missed — see the file docstring.)
     expect(patterns.length).toBeGreaterThan(500);
+  });
+
+  it("resolves at least one statically-known new RegExp(...) call (sanity check that resolution path still works)", () => {
+    // If this ever drops to 0, the const-resolution logic above has
+    // stopped matching this codebase's actual shape (e.g. output-guard.ts's
+    // DESTRUCTIVE_SHELL_VERBS-based pattern) and new RegExp() coverage has
+    // silently regressed back to zero — fail loudly rather than pass
+    // vacuously.
+    const resolvedNewRegExp = patterns.filter(p => p.source.startsWith("new RegExp("));
+    expect(resolvedNewRegExp.length).toBeGreaterThan(0);
   });
 
   it("no pattern shows quadratic-or-worse scaling on adversarial input", () => {

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
+import * as ts from "typescript";
 import { buildDecodeVariants } from "../src/decode-variants";
 
 describe("buildDecodeVariants", () => {
@@ -10,9 +11,17 @@ describe("buildDecodeVariants", () => {
     // ExternalDataGuard's own default maxContentLength (50,000), so content
     // between the two thresholds was silently never decoded, not just
     // never rejected for size — a real bypass, not just a perf knob.
-    // Statically scans every guard for a `maxContentLength ?? <N>`-style
-    // default (source-level, not a hardcoded guard list) so a FUTURE guard
-    // with a larger default trips this test too, not just today's one guard.
+    // Statically scans every guard (via the TS AST, not a hand-tuned
+    // regex) for a `<name>ContentLength ?? <N>` / `<name>ContentLength ||
+    // <N>` default, so a FUTURE guard with a larger default trips this
+    // test too, not just today's one guard. An earlier version used a
+    // text-scan regex requiring the exact shape `name: config.field ??
+    // N` — independent review pointed out it would silently miss any
+    // other default-expression style (e.g. `||`, or a class-field
+    // default) with no signal that coverage had narrowed; the AST walk
+    // below matches on the property/field *name* and the *value shape*
+    // (a `??`/`||` binary expression with a numeric literal on the
+    // right), independent of exactly how the left-hand side is written.
     it("MAX_INPUT_LENGTH is >= every guard's own default max-content-length", () => {
       const decodeVariantsSrc = fs.readFileSync(path.join(__dirname, "..", "src", "decode-variants.ts"), "utf8");
       const capMatch = decodeVariantsSrc.match(/MAX_INPUT_LENGTH\s*=\s*([\d_]+)/);
@@ -20,18 +29,46 @@ describe("buildDecodeVariants", () => {
       const cap = parseInt(capMatch![1].replace(/_/g, ""), 10);
 
       const guardsDir = path.join(__dirname, "..", "src", "guards");
-      const defaultRe = /max[A-Za-z]*ContentLength\w*\s*:\s*config\.\w+\s*\?\?\s*([\d_]+)/g;
+      const nameRe = /^[A-Za-z_]*ContentLength$/;
       const found: { file: string; value: number }[] = [];
+
       for (const file of fs.readdirSync(guardsDir)) {
         if (!file.endsWith(".ts")) continue;
-        const src = fs.readFileSync(path.join(guardsDir, file), "utf8");
-        let m: RegExpExecArray | null;
-        while ((m = defaultRe.exec(src))) {
-          found.push({ file, value: parseInt(m[1].replace(/_/g, ""), 10) });
-        }
+        const filePath = path.join(guardsDir, file);
+        const src = fs.readFileSync(filePath, "utf8");
+        const sourceFile = ts.createSourceFile(filePath, src, ts.ScriptTarget.Latest, true);
+
+        const nameOf = (node: ts.Node): string | null => {
+          if ((ts.isPropertyAssignment(node) || ts.isPropertyDeclaration(node) || ts.isParameter(node)) && ts.isIdentifier(node.name)) {
+            return node.name.text;
+          }
+          return null;
+        };
+        const valueOf = (node: ts.Node): ts.Expression | undefined => {
+          if (ts.isPropertyAssignment(node)) return node.initializer;
+          if (ts.isPropertyDeclaration(node) || ts.isParameter(node)) return node.initializer;
+          return undefined;
+        };
+
+        const visit = (node: ts.Node) => {
+          const name = nameOf(node);
+          if (name && nameRe.test(name)) {
+            const value = valueOf(node);
+            if (
+              value &&
+              ts.isBinaryExpression(value) &&
+              (value.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken || value.operatorToken.kind === ts.SyntaxKind.BarBarToken) &&
+              ts.isNumericLiteral(value.right)
+            ) {
+              found.push({ file, value: parseInt(value.right.text.replace(/_/g, ""), 10) });
+            }
+          }
+          ts.forEachChild(node, visit);
+        };
+        visit(sourceFile);
       }
 
-      expect(found.length, "no maxContentLength-style default found in any guard — extraction regex drifted, or the config was renamed").toBeGreaterThan(0);
+      expect(found.length, "no <name>ContentLength default found in any guard — extraction drifted, or the config was renamed").toBeGreaterThan(0);
       const tooLarge = found.filter(f => f.value > cap);
       expect(tooLarge, `decode-variants.ts's MAX_INPUT_LENGTH (${cap}) is smaller than: ${JSON.stringify(tooLarge)} — content between these thresholds would be silently never decoded`).toEqual([]);
     });

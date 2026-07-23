@@ -334,7 +334,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
-Every regex literal in `src/` (extracted via the TypeScript compiler's own AST, so every syntactic position is covered — not just a hand-picked declaration shape) is stress-tested against pathological (non-attack) input to find and fix catastrophic-backtracking (ReDoS) vulnerabilities — see the CHANGELOG for details. This is now a permanent, automated check (`tests/redos-safety.test.ts`, part of the standard test suite) rather than a one-off manual sweep — writing it found three real cases (`heuristic-analyzer.ts`, `rag-guard.ts`) the earlier manual rounds had missed.
+Every regex literal in `src/` (extracted via the TypeScript compiler's own AST, so every syntactic position is covered — not just a hand-picked declaration shape), plus every statically-resolvable `new RegExp(...)` call, is stress-tested against pathological (non-attack) input to find and fix catastrophic-backtracking (ReDoS) vulnerabilities — see the CHANGELOG for details. This is now a permanent, automated check (`tests/redos-safety.test.ts`, part of the standard test suite) rather than a one-off manual sweep — writing it found three real cases (`heuristic-analyzer.ts`, `rag-guard.ts`) the earlier manual rounds had missed. A handful of `new RegExp(...)` call sites built from operator-configured values (not attacker-controlled request data) remain structurally unresolvable by static analysis and are documented as such in the test file, not silently uncovered.
 
 ## License
 

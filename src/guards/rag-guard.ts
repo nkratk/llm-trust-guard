@@ -916,7 +916,7 @@ export class RAGGuard {
     }
 
     // Whitespace pattern encoding - multiple checks
-    const tabSpacePattern = /\s{4,}\t+\s+|\t{2,}\s+\t/;
+    const tabSpacePattern = /\s{4,2000}\t{1,2000}\s{1,2000}|\t{2,2000}\s{1,2000}\t/;
     if (tabSpacePattern.test(content)) {
       violations.push("whitespace_encoding");
       riskContribution += 35;

@@ -66,9 +66,13 @@ import * as ts from "typescript";
  */
 
 const SRC_DIR = path.join(__dirname, "..", "src");
-const SMALL_REPS = 4000;
+const SMALL_REPS = 6000;
 const LARGE_REPS = SMALL_REPS * 4; // 4x size step
-const RATIO_THRESHOLD = 8.0; // linear ~4x, quadratic ~16x at a 4x size step; extra margin above 6.0 plus min-of-N sampling absorbs CI runner noise
+// linear ~4x, quadratic ~16x at a 4x size step. CI's shared runners produced two separate single-digit-margin
+// false positives on confirmed-linear patterns at RATIO_THRESHOLD=8.0 with 3-sample min (7.5x, 8.7x) — both
+// reproduced as clean ~4x locally across a wide size range. Widened further (8.0 -> 10.0) and RATIO_SAMPLES
+// 3 -> 5, still comfortably below every real bug found this session (~15-16x).
+const RATIO_THRESHOLD = 10.0;
 const MIN_SMALL_MS = 5; // ignore near-zero timings where a ratio is just noise — SMALL_REPS is chosen so a real
 // quadratic pattern clears this floor at SMALL_REPS (verified empirically: 2000 reps left ~5ms readings too
 // close to the floor to reliably ratio-check on a fast engine; 4000 reps reads ~19ms, well clear of noise)
@@ -194,7 +198,7 @@ function timeMsOnce(regex: RegExp, seed: string): number {
   return Number(process.hrtime.bigint() - start) / 1e6;
 }
 
-const RATIO_SAMPLES = 3;
+const RATIO_SAMPLES = 5;
 
 // Minimum of several samples: a GC pause / scheduler preemption / shared-CI-
 // runner contention can only ever inflate a single sample's timing, never

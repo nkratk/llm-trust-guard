@@ -181,6 +181,41 @@ describe("OutputFilter", () => {
         const r = f.filter("dXNlckBleGFtcGxlLmNvbQ==");
         expect(r.pii_detected.some((p) => p.type === "email")).toBe(true);
       });
+
+      it("does not suppress a real IP across any clause-break punctuation, not just :;.,", () => {
+        // A second round of independent review found the punctuation
+        // denylist (:;.,) from the fix above still missed every OTHER
+        // clause-break character — !?()[]—- all still silently left a real
+        // IP undetected AND unmasked. Replaced with an allowlist (letters +
+        // horizontal whitespace only) that's robust against any punctuation
+        // mark, not just the ones a prior regression happened to find.
+        expect(isIpDetected("Release! Connect to 10.4.32.3 now")).toBe(true);
+        expect(isIpDetected("release? 10.4.32.3")).toBe(true);
+        expect(isIpDetected("release (a) 10.4.32.3")).toBe(true);
+        expect(isIpDetected("release [x] 10.4.32.3")).toBe(true);
+        expect(isIpDetected("release — 10.4.32.3")).toBe(true);
+        expect(isIpDetected("release - 10.4.32.3")).toBe(true);
+        const r = f.filter("Release! Connect to 10.4.32.3 now");
+        expect(r.filtered_response).toBe("Release! Connect to [IP_ADDRESS] now");
+      });
+
+      it("does not suppress across a newline (keyword and number in different lines/paragraphs)", () => {
+        expect(isIpDetected("version\n10.4.32.3")).toBe(true);
+      });
+
+      it("still detects a real IP obfuscated via base64/hex, not just the reversed-string variant", () => {
+        // A second round of independent review found the first fix for the
+        // reversed-string regression (skipping ip_address for EVERY scan
+        // variant) also silently disabled detection of a real IP hidden via
+        // base64 or hex encoding — a genuine exfiltration-detection gap,
+        // not just an over-broad false-positive fix. Only the reversed
+        // variant actually causes the false positive (it's the only
+        // transform that reorders text), so only that one is excluded now.
+        const b64 = Buffer.from("internal host: 10.0.0.5").toString("base64");
+        expect(isIpDetected(b64)).toBe(true);
+        const hex = Buffer.from("contact 10.0.0.5 now").toString("hex");
+        expect(isIpDetected(hex)).toBe(true);
+      });
     });
 
     it("detects a Luhn-valid credit card with non-4-4-4-4 grouping", () => {

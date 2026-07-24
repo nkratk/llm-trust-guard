@@ -146,23 +146,31 @@ export class OutputFilter {
       // identical to a real IPv4 address by shape alone) a negative
       // lookbehind suppresses the match when a version-indicating keyword
       // (version/release/upgrade/update) appears shortly before it, IN THE
-      // SAME CLAUSE — the gap excludes ":;.," (clause/sentence-break
-      // punctuation) as well as digits/newlines, so "upgrade to 10.4.32.3"
-      // (no break) still suppresses but "This release: connect to
-      // 10.4.32.3" (colon breaks the clause — "release" is a document
-      // label, unrelated to the number) does not. An earlier version only
-      // excluded digits/newlines from the gap and was too permissive —
-      // independent review found it silently left a real IP undetected
-      // AND unmasked ("This release: connect to 10.4.32.3 for support")
-      // whenever a keyword appeared anywhere within 15 chars regardless of
-      // clause boundaries, which is a worse outcome (a real leak) than the
-      // false positive being fixed. Doesn't fully disambiguate the shape
-      // ambiguity for an out-of-band version string with no keyword nearby
-      // at all — still flagged, correctly erring toward recall. A bare "v"
-      // prefix (e.g. "v10.4.32.3") needs no special handling — the leading
-      // \b already excludes it, since a digit immediately preceded by a
-      // letter is word-to-word (no boundary) either way.
-      pattern: /\b(?<!\b(?:version|release|upgrade|update)\b[^\d\n:;.,]{0,15})(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}\b/gi,
+      // SAME CLAUSE — the gap is restricted to LETTERS AND SPACE/TAB ONLY
+      // (no punctuation of any kind, no newline), so "upgrade to
+      // 10.4.32.3" (a connecting word, still the same clause) suppresses,
+      // but any punctuation between the keyword and the number — a colon,
+      // a period, an exclamation mark, parens, an em dash, anything —
+      // means a different clause and does not suppress. An earlier version
+      // denylisted only ":;.," as clause breaks and left every other
+      // punctuation mark (!?()[]—- etc.) still treated as "same clause" —
+      // independent review found real IPs silently left undetected AND
+      // unmasked whenever one of THOSE characters sat between an unrelated
+      // keyword and the number (e.g. "Release! Connect to 10.4.32.3 now").
+      // An allowlist of what's PERMITTED (letters + horizontal whitespace)
+      // is robust against any punctuation mark, not just the ones already
+      // found by a prior regression; a denylist of what's excluded needs a
+      // new entry every time review finds one more counterexample.
+      // Newline is deliberately excluded from the allowed gap — a keyword
+      // on one line and a number on a different line/paragraph should not
+      // be treated as the same clause; this is intentional, not a gap.
+      // Doesn't fully disambiguate the shape ambiguity for an out-of-band
+      // version string with no keyword nearby at all — still flagged,
+      // correctly erring toward recall. A bare "v" prefix (e.g.
+      // "v10.4.32.3") needs no special handling — the leading \b already
+      // excludes it, since a digit immediately preceded by a letter is
+      // word-to-word (no boundary) either way.
+      pattern: /\b(?<!\b(?:version|release|upgrade|update)\b[a-zA-Z \t]{0,15})(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}\b/gi,
       maskAs: "[IP_ADDRESS]",
     },
     {
@@ -395,6 +403,17 @@ export class OutputFilter {
 
     // Build obfuscation-bypass scan variants (ZWSP-stripped, URL/hex/base64 decoded, reversed, Cyrillic normalised)
     const scanTargets = [outputStr, ...this.buildScanVariants(outputStr)];
+    // Only the REVERSED variant defeats ip_address's version-string
+    // exclusion (a version keyword like "release" scrambles to "esaeler"
+    // and no longer matches, while the digit-and-dot IP shape survives,
+    // just reordered) — none of the other transforms (URL/hex/base64-
+    // decode, ZWSP-strip, Cyrillic-normalize) reorder text, so none of
+    // them could produce that specific false positive. An earlier version
+    // of this fix skipped ip_address for EVERY scan variant, which also
+    // silently disabled real-IP detection in base64/hex-obfuscated output
+    // (a genuine exfiltration-detection gap independent review caught) —
+    // recomputed here so only the one problematic variant is excluded.
+    const reversedOutputStr = [...outputStr].reverse().join("");
 
     // Detect PII (across all scan variants)
     if (this.config.detectPII) {
@@ -402,21 +421,7 @@ export class OutputFilter {
       for (const target of scanTargets) {
         for (const pattern of this.config.piiPatterns!) {
           if (detectedPII.has(pattern.name)) continue;
-          // ip_address's version-string exclusion (see the pattern's own
-          // comment) only makes sense against the original text — the
-          // reversed scan variant scrambles a version keyword ("release"
-          // -> "esaeler", no longer matches) while the digit-and-dot IP
-          // shape survives (just reordered), so scanning it would
-          // independently re-flag a version string the original text
-          // correctly suppressed. Found by independent review testing
-          // "release 12.34.56.78 today" through the full obfuscation-scan
-          // pipeline, not just the standalone regex. IP addresses are also
-          // a much less likely deliberate-obfuscation target than
-          // email/SSN/credit-card in this guard's threat model, so
-          // skipping variant scans here trades a narrow, unlikely miss
-          // (a genuinely-obfuscated real IP) for closing a concrete,
-          // reproducible false-positive-via-reversal bug.
-          if (pattern.name === "ip_address" && target !== outputStr) continue;
+          if (pattern.name === "ip_address" && target === reversedOutputStr && target !== outputStr) continue;
           let matches: string[] | null = target.match(pattern.pattern);
           if (matches && pattern.validate) {
             matches = matches.filter((m) => pattern.validate!(m));
